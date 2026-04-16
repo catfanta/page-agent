@@ -10,6 +10,7 @@
         "packages/core",
         "packages/page-agent",
         "packages/mcp",
+        "packages/recorder",
         "packages/extension",
         "packages/website"
     ],

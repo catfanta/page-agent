@@ -1,0 +1,49 @@
+{
+    "name": "@page-agent/recorder",
+    "version": "1.8.0",
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    },
+    "publishConfig": {
+        "main": "./dist/lib/recorder.js",
+        "module": "./dist/lib/recorder.js",
+        "types": "./dist/lib/index.d.ts",
+        "exports": {
+            ".": {
+                "types": "./dist/lib/index.d.ts",
+                "import": "./dist/lib/recorder.js",
+                "default": "./dist/lib/recorder.js"
+            }
+        }
+    },
+    "files": [
+        "dist/"
+    ],
+    "description": "Recording and replay for page-agent - capture user interactions and replay them",
+    "keywords": [
+        "page-agent",
+        "recorder",
+        "replay",
+        "automation"
+    ],
+    "author": "Simon<gaomeng1900>",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/alibaba/page-agent.git",
+        "directory": "packages/recorder"
+    },
+    "homepage": "https://alibaba.github.io/page-agent/",
+    "scripts": {
+        "build": "vite build"
+    },
+    "peerDependencies": {
+        "@page-agent/page-controller": "*"
+    }
+}
