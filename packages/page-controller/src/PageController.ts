@@ -441,3 +441,4 @@ export class PageController extends EventTarget {
 }
 
 export * from './actions'
+export type { InteractiveElementDomNode } from './dom/dom_tree/type'
