@@ -43,6 +43,18 @@ const enUS = {
 			notSelectElement: 'Element is not a select element',
 			optionNotFound: 'Option "{{text}}" not found',
 		},
+		recording: {
+			tab: 'Recording',
+			startRecording: 'Start Recording',
+			stopRecording: 'Stop Recording',
+			recordingStatus: 'Recording...',
+			noRecordings: 'No recordings yet',
+			replay: 'Replay',
+			delete: 'Delete',
+			confirmDelete: 'Delete this recording?',
+			replayFailed: 'Replay failed at step {{step}}: {{reason}}',
+			replayDone: 'Replay completed',
+		},
 	},
 } as const
 
@@ -90,6 +102,18 @@ const zhCN = {
 			notInputElement: '元素不是输入框或文本域',
 			notSelectElement: '元素不是选择框',
 			optionNotFound: '未找到选项 "{{text}}"',
+		},
+		recording: {
+			tab: '录制',
+			startRecording: '开始录制',
+			stopRecording: '停止录制',
+			recordingStatus: '录制中...',
+			noRecordings: '暂无录制',
+			replay: '回放',
+			delete: '删除',
+			confirmDelete: '删除此录制？',
+			replayFailed: '回放在步骤 {{step}} 失败：{{reason}}',
+			replayDone: '回放完成',
 		},
 	},
 } as const
