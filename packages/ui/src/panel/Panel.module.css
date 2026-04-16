@@ -599,3 +599,48 @@
 		}
 	}
 }
+
+/* ======= Tab bar ======= */
+.tabBar {
+	display: flex;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+	padding: 0 8px;
+	flex-shrink: 0;
+}
+
+.tabBtn {
+	background: none;
+	border: none;
+	color: rgba(255, 255, 255, 0.5);
+	font-size: 11px;
+	padding: 6px 10px;
+	cursor: pointer;
+	border-bottom: 2px solid transparent;
+	transition: all 0.15s;
+}
+
+.tabBtn:hover {
+	color: rgba(255, 255, 255, 0.8);
+}
+
+.tabBtnActive {
+	color: rgb(57, 182, 255);
+	border-bottom-color: rgb(57, 182, 255);
+}
+
+.tabContent {
+	display: none;
+	overflow-y: auto;
+	scrollbar-width: none;
+	max-height: 0;
+	padding-inline: 8px;
+	transition: max-height 0.2s;
+}
+
+.tabContentActive {
+	display: block;
+}
+
+.expanded .tabContentActive {
+	max-height: min(500px, calc(100vh - 200px - var(--height)));
+}

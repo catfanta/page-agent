@@ -1,9 +1,13 @@
+import type { Recorder, RecordingStore, Replayer } from '@page-agent/recorder'
+
 import { I18n, type SupportedLanguage } from '../i18n'
 import { truncate } from '../utils'
 import { createCard, createReflectionLines } from './cards'
 import type { AgentActivity, PanelAgentAdapter } from './types'
 
 import styles from './Panel.module.css'
+import type { RecordingTabDeps } from './RecordingTab'
+import { RecordingTab } from './RecordingTab'
 
 /**
  * Panel configuration
@@ -15,6 +19,15 @@ export interface PanelConfig {
 	 * @default true
 	 */
 	promptForNextTask?: boolean
+	/**
+	 * Optional recording/replay dependencies.
+	 * When provided, a "Recording" tab is added to the panel.
+	 */
+	recording?: {
+		recorder: Recorder
+		replayer: Replayer
+		store: RecordingStore
+	}
 }
 
 /**
@@ -46,6 +59,11 @@ export class Panel {
 	#headerUpdateTimer: ReturnType<typeof setInterval> | null = null
 	#pendingHeaderText: string | null = null
 	#isAnimating = false
+	#activeTab: 'ai' | 'recording' = 'ai'
+	#recordingTab: RecordingTab | null = null
+	#tabBar: HTMLElement | null = null
+	#aiTabContent: HTMLElement | null = null
+	#recordingTabContent: HTMLElement | null = null
 
 	// Event handlers (bound for removal)
 	#onStatusChange = () => this.#handleStatusChange()
@@ -90,6 +108,10 @@ export class Panel {
 		this.#startHeaderUpdateLoop()
 
 		this.#showInputArea()
+
+		if (config.recording) {
+			this.#initRecordingTab(config.recording)
+		}
 
 		this.hide() // Start hidden
 	}
@@ -366,6 +388,72 @@ export class Panel {
 		}
 
 		return false
+	}
+
+	#initRecordingTab(cfg: NonNullable<PanelConfig['recording']>): void {
+		// Create tab bar
+		const tabBar = document.createElement('div')
+		tabBar.className = styles.tabBar
+		tabBar.innerHTML = `
+			<button class="${styles.tabBtn} ${styles.tabBtnActive}" data-tab="ai">AI</button>
+			<button class="${styles.tabBtn}" data-tab="recording">${this.#i18n.t('ui.recording.tab')}</button>
+		`
+		this.#tabBar = tabBar
+
+		// Wrap existing historySection in a tabContent div
+		const aiContent = document.createElement('div')
+		aiContent.className = `${styles.tabContent} ${styles.tabContentActive}`
+		const historySectionWrapper = this.#wrapper.querySelector(`.${styles.historySectionWrapper}`)!
+		// Move historySection into aiContent
+		const existingHistorySection = this.#historySection
+		existingHistorySection.parentElement?.removeChild(existingHistorySection)
+		aiContent.appendChild(existingHistorySection)
+		this.#aiTabContent = aiContent
+
+		// Create recording tab content
+		const recordingContent = document.createElement('div')
+		recordingContent.className = styles.tabContent
+		this.#recordingTabContent = recordingContent
+
+		const deps: RecordingTabDeps = {
+			recorder: cfg.recorder,
+			replayer: cfg.replayer,
+			store: cfg.store,
+			i18n: this.#i18n,
+		}
+		this.#recordingTab = new RecordingTab(deps)
+		recordingContent.appendChild(this.#recordingTab.element)
+
+		// Insert tab bar + content into historySectionWrapper
+		historySectionWrapper.prepend(tabBar)
+		historySectionWrapper.appendChild(aiContent)
+		historySectionWrapper.appendChild(recordingContent)
+
+		// Tab switching
+		tabBar.addEventListener('click', (e) => {
+			const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]')
+			if (!btn) return
+			const tab = btn.dataset.tab as 'ai' | 'recording'
+			this.#switchTab(tab)
+		})
+	}
+
+	#switchTab(tab: 'ai' | 'recording'): void {
+		this.#activeTab = tab
+
+		const tabs = this.#tabBar?.querySelectorAll<HTMLButtonElement>('[data-tab]')
+		tabs?.forEach((btn) => {
+			btn.classList.toggle(styles.tabBtnActive, btn.dataset.tab === tab)
+		})
+
+		this.#aiTabContent?.classList.toggle(styles.tabContentActive, tab === 'ai')
+		this.#recordingTabContent?.classList.toggle(styles.tabContentActive, tab === 'recording')
+
+		if (tab === 'recording') {
+			void this.#recordingTab?.refresh()
+			// Expand panel if collapsed
+			if (!this.#isExpanded) this.#expand()
+		}
 	}
 
 	#createWrapper(): HTMLElement {
