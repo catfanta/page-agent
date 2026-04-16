@@ -239,6 +239,16 @@ export class PageController extends EventTarget {
 	}
 
 	/**
+	 * Get the current selector map (index → interactive element node).
+	 * Returns a live reference — call updateTree() first to ensure it is up-to-date.
+	 * Do NOT cache the returned reference across updateTree() calls.
+	 * Used by external tools like Recorder/Replayer.
+	 */
+	getSelectorMap(): ReadonlyMap<number, InteractiveElementDomNode> {
+		return this.selectorMap
+	}
+
+	/**
 	 * Click element by index
 	 */
 	async clickElement(index: number): Promise<ActionResult> {
