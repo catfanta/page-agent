@@ -1,0 +1,82 @@
+/* Recording Tab global styles — pa-rec- prefix avoids collisions */
+.pa-rec-controls {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 0 4px;
+}
+
+.pa-rec-status {
+	font-size: 11px;
+	color: rgb(255, 100, 100);
+	flex: 1;
+}
+
+.pa-rec-btn {
+	background: rgba(255, 255, 255, 0.1);
+	border: 1px solid rgba(255, 255, 255, 0.2);
+	border-radius: 6px;
+	color: white;
+	font-size: 11px;
+	padding: 3px 8px;
+	cursor: pointer;
+}
+
+.pa-rec-btn:hover {
+	background: rgba(255, 255, 255, 0.2);
+}
+
+.pa-rec-active {
+	background: rgba(255, 60, 60, 0.3) !important;
+	border-color: rgb(255, 60, 60) !important;
+}
+
+.pa-rec-preview {
+	margin-bottom: 6px;
+}
+
+.pa-rec-action-row {
+	font-size: 11px;
+	color: rgba(255, 255, 255, 0.8);
+	padding: 2px 0;
+}
+
+.pa-rec-action-desc {
+	color: rgba(255, 255, 255, 0.5);
+	font-size: 10px;
+}
+
+.pa-rec-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+	font-size: 11px;
+	color: white;
+}
+
+.pa-rec-item-name {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pa-rec-item-date {
+	color: rgba(255, 255, 255, 0.4);
+	font-size: 10px;
+}
+
+.pa-rec-empty {
+	font-size: 11px;
+	color: rgba(255, 255, 255, 0.4);
+	padding: 12px 0;
+	text-align: center;
+}
+
+.pa-rec-play,
+.pa-rec-del {
+	padding: 2px 6px;
+	font-size: 11px;
+}
