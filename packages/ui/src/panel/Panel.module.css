@@ -611,11 +611,11 @@
 	}
 }
 
-/* ======= Recording list panel (below header) ======= */
+/* ======= Recording list panel (above header) ======= */
 .recListWrapper {
 	position: absolute;
 	width: var(--history-width);
-	top: var(--height);
+	bottom: var(--height);
 	left: var(--side-space);
 	z-index: 0;
 
@@ -629,17 +629,18 @@
 	background: rgba(2, 0, 20, 0.5);
 	backdrop-filter: blur(10px);
 
-	border-bottom-left-radius: calc(var(--border-radius) + 4px);
-	border-bottom-right-radius: calc(var(--border-radius) + 4px);
+	border-top-left-radius: calc(var(--border-radius) + 4px);
+	border-top-right-radius: calc(var(--border-radius) + 4px);
 
 	border: 2px solid rgba(255, 255, 255, 0.4);
-	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+	box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.6);
 
 	.recListShown & {
 		visibility: visible;
 		max-height: min(300px, calc(100vh - 200px - var(--height)));
 		overflow-y: auto;
-		scrollbar-width: none;
+		scrollbar-width: thin;
+		scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 		padding: 4px 8px 8px;
 	}
 }

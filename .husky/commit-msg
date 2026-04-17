@@ -1,1 +1,5 @@
+export PATH="/opt/homebrew/bin:$PATH"
+if command -v mise > /dev/null; then
+  eval "$(mise activate bash --silent)"
+fi
 npx --no -- commitlint --edit $1

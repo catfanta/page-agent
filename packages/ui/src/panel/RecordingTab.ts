@@ -1,4 +1,10 @@
-import type { Recorder, Recording, RecordingStore, Replayer } from '@page-agent/recorder'
+import type {
+	ActionRecord,
+	Recorder,
+	Recording,
+	RecordingStore,
+	Replayer,
+} from '@page-agent/recorder'
 
 import type { I18n } from '../i18n'
 
@@ -93,17 +99,19 @@ export class RecordingTab {
 		this.livePreviewTimer = setInterval(() => {
 			const actions = this.deps.recorder.recordedActions
 			previewList.innerHTML = actions
-				.map((a, i) => {
-					const desc =
-						'elementDesc' in a
-							? a.elementDesc
-							: 'url' in a
-								? a.url
-								: `scroll ${a.down ? '↓' : '↑'} ${a.pixels}px`
-					return `<div class="pa-rec-action-row">[${i}] ${a.type} &nbsp;<span class="pa-rec-action-desc">${desc}</span></div>`
-				})
+				.map(
+					(a, i) =>
+						`<div class="pa-rec-action-row">[${i}] ${a.type} &nbsp;<span class="pa-rec-action-desc">${this.actionDesc(a)}</span></div>`
+				)
 				.join('')
 		}, 500)
+	}
+
+	private actionDesc(a: ActionRecord): string {
+		if (a.type === 'input') return `${a.elementDesc}  →  "${a.text}"`
+		if ('elementDesc' in a) return a.elementDesc
+		if ('url' in a) return a.url
+		return `scroll ${a.down ? '↓' : '↑'} ${a.pixels}px`
 	}
 
 	stopLivePreview(): void {
@@ -125,16 +133,64 @@ export class RecordingTab {
 		this.historyEl.innerHTML = recordings
 			.map((r) => {
 				const date = new Date(r.createdAt).toLocaleDateString()
+				const safeName = r.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 				return `
-					<div class="pa-rec-item" data-id="${r.id}">
-						<span class="pa-rec-item-name">${r.name}</span>
-						<span class="pa-rec-item-date">${date}</span>
-						<button class="pa-rec-btn pa-rec-play" data-id="${r.id}" title="${i18n.t('ui.recording.replay')}">▶</button>
-						<button class="pa-rec-btn pa-rec-del" data-id="${r.id}" title="${i18n.t('ui.recording.delete')}">🗑</button>
+					<div class="pa-rec-entry">
+						<div class="pa-rec-item" data-id="${r.id}">
+							<span class="pa-rec-item-name">${safeName}</span>
+							<span class="pa-rec-item-date">${date}</span>
+							<button class="pa-rec-btn pa-rec-view" data-id="${r.id}" title="${i18n.t('ui.recording.viewActions')}">☰</button>
+							<button class="pa-rec-btn pa-rec-edit" data-id="${r.id}" title="${i18n.t('ui.recording.rename')}">✏️</button>
+							<button class="pa-rec-btn pa-rec-play" data-id="${r.id}" title="${i18n.t('ui.recording.replay')}">▶</button>
+							<button class="pa-rec-btn pa-rec-del" data-id="${r.id}" title="${i18n.t('ui.recording.delete')}">🗑</button>
+						</div>
+						<div class="pa-rec-actions-detail"></div>
 					</div>
 				`
 			})
 			.join('')
+
+		// Wire view buttons
+		this.historyEl.querySelectorAll<HTMLButtonElement>('.pa-rec-view').forEach((btn) => {
+			btn.addEventListener('click', async (e) => {
+				e.stopPropagation()
+				const id = btn.dataset.id!
+				const entry = btn.closest<HTMLElement>('.pa-rec-entry')!
+				const detail = entry.querySelector<HTMLElement>('.pa-rec-actions-detail')!
+				if (detail.classList.contains('pa-rec-actions-open')) {
+					detail.classList.remove('pa-rec-actions-open')
+					btn.classList.remove('pa-rec-view-active')
+					return
+				}
+				const recording = await store.get(id)
+				if (!recording) return
+				detail.innerHTML =
+					recording.actions.length === 0
+						? `<div class="pa-rec-actions-empty">—</div>`
+						: recording.actions
+								.map(
+									(a, i) => `
+						<div class="pa-rec-action-row">
+							<span class="pa-rec-action-index">${i + 1}</span>
+							<span class="pa-rec-action-type">${a.type}</span>
+							<span class="pa-rec-action-desc">${this.actionDesc(a)}</span>
+						</div>
+					`
+								)
+								.join('')
+				detail.classList.add('pa-rec-actions-open')
+				btn.classList.add('pa-rec-view-active')
+			})
+		})
+
+		// Wire edit buttons
+		this.historyEl.querySelectorAll<HTMLButtonElement>('.pa-rec-edit').forEach((btn) => {
+			btn.addEventListener('click', () => {
+				const id = btn.dataset.id!
+				const item = btn.closest<HTMLElement>('.pa-rec-item')!
+				this.enterRenameMode(item, id)
+			})
+		})
 
 		// Wire play buttons
 		this.historyEl.querySelectorAll<HTMLButtonElement>('.pa-rec-play').forEach((btn) => {
@@ -154,6 +210,61 @@ export class RecordingTab {
 				await store.delete(btn.dataset.id!)
 				await this.renderHistory()
 			})
+		})
+	}
+
+	private enterRenameMode(item: HTMLElement, id: string): void {
+		const { store, i18n } = this.deps
+		const nameSpan = item.querySelector<HTMLElement>('.pa-rec-item-name')!
+		const editBtn = item.querySelector<HTMLButtonElement>('.pa-rec-edit')!
+		const currentName = nameSpan.textContent ?? ''
+
+		const input = document.createElement('input')
+		input.className = 'pa-rec-rename-input'
+		input.value = currentName
+		nameSpan.replaceWith(input)
+		input.focus()
+		input.select()
+
+		const saveBtn = document.createElement('button')
+		saveBtn.className = 'pa-rec-btn pa-rec-rename-save'
+		saveBtn.title = i18n.t('ui.recording.renameSave')
+		saveBtn.textContent = '✔'
+
+		const cancelBtn = document.createElement('button')
+		cancelBtn.className = 'pa-rec-btn pa-rec-rename-cancel'
+		cancelBtn.title = i18n.t('ui.recording.renameCancel')
+		cancelBtn.textContent = '✖'
+
+		editBtn.replaceWith(saveBtn, cancelBtn)
+
+		const commit = async () => {
+			const newName = input.value.trim()
+			if (newName && newName !== currentName) {
+				await store.rename(id, newName)
+			}
+			await this.renderHistory()
+		}
+
+		const cancel = () => void this.renderHistory()
+
+		saveBtn.addEventListener('click', (e) => {
+			e.stopPropagation()
+			void commit()
+		})
+		cancelBtn.addEventListener('click', (e) => {
+			e.stopPropagation()
+			cancel()
+		})
+		input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				e.preventDefault()
+				void commit()
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault()
+				cancel()
+			}
 		})
 	}
 }

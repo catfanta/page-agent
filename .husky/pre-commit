@@ -1,1 +1,9 @@
+# 1. 确保能找到 brew 安装的二进制文件（针对 macOS Apple Silicon）
+export PATH="/opt/homebrew/bin:$PATH"
+
+# 2. 如果能找到 mise，则激活它
+if command -v mise > /dev/null; then
+  eval "$(mise activate bash --silent)"
+fi
+
 npx lint-staged --allow-empty

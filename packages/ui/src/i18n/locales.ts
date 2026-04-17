@@ -54,6 +54,10 @@ const enUS = {
 			confirmDelete: 'Delete this recording?',
 			replayFailed: 'Replay failed at step {{step}}: {{reason}}',
 			replayDone: 'Replay completed',
+			rename: 'Rename',
+			renameSave: 'Save',
+			renameCancel: 'Cancel',
+			viewActions: 'View actions',
 		},
 	},
 } as const
@@ -114,6 +118,10 @@ const zhCN = {
 			confirmDelete: '删除此录制？',
 			replayFailed: '回放在步骤 {{step}} 失败：{{reason}}',
 			replayDone: '回放完成',
+			rename: '重命名',
+			renameSave: '保存',
+			renameCancel: '取消',
+			viewActions: '查看动作',
 		},
 	},
 } as const
