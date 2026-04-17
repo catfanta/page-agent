@@ -165,22 +165,7 @@ export class RecordingTab {
 					btn.classList.remove('pa-rec-view-active')
 					return
 				}
-				const recording = await store.get(id)
-				if (!recording) return
-				detail.innerHTML =
-					recording.actions.length === 0
-						? `<div class="pa-rec-actions-empty">—</div>`
-						: recording.actions
-								.map(
-									(a, i) => `
-						<div class="pa-rec-action-row">
-							<span class="pa-rec-action-index">${i + 1}</span>
-							<span class="pa-rec-action-type">${a.type}</span>
-							<span class="pa-rec-action-desc">${this.actionDesc(a)}</span>
-						</div>
-					`
-								)
-								.join('')
+				await this.renderActionDetail(detail, id)
 				detail.classList.add('pa-rec-actions-open')
 				btn.classList.add('pa-rec-view-active')
 			})
@@ -212,6 +197,39 @@ export class RecordingTab {
 				if (!confirm(i18n.t('ui.recording.confirmDelete'))) return
 				await store.delete(btn.dataset.id!)
 				await this.renderHistory()
+			})
+		})
+	}
+
+	private async renderActionDetail(detail: HTMLElement, recordingId: string): Promise<void> {
+		const { store } = this.deps
+		const recording = await store.get(recordingId)
+		if (!recording || recording.actions.length === 0) {
+			detail.innerHTML = `<div class="pa-rec-actions-empty">—</div>`
+			return
+		}
+		detail.innerHTML = recording.actions
+			.map(
+				(a, i) => `
+				<div class="pa-rec-action-row">
+					<span class="pa-rec-action-index">${i + 1}</span>
+					<span class="pa-rec-action-type">${a.type}</span>
+					<span class="pa-rec-action-desc">${this.actionDesc(a)}</span>
+					<button class="pa-rec-btn pa-rec-action-del" data-action-index="${i}" title="删除此步骤">✕</button>
+				</div>
+			`
+			)
+			.join('')
+
+		detail.querySelectorAll<HTMLButtonElement>('.pa-rec-action-del').forEach((btn) => {
+			btn.addEventListener('click', async (e) => {
+				e.stopPropagation()
+				const idx = Number(btn.dataset.actionIndex)
+				const rec = await store.get(recordingId)
+				if (!rec) return
+				rec.actions.splice(idx, 1)
+				await store.save(rec)
+				await this.renderActionDetail(detail, recordingId)
 			})
 		})
 	}

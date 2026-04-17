@@ -111,10 +111,24 @@
 .pa-rec-action-row {
 	display: flex;
 	gap: 6px;
-	align-items: baseline;
+	align-items: center;
 	font-size: 11px;
 	color: rgba(255, 255, 255, 0.8);
 	padding: 2px 0;
+}
+
+.pa-rec-action-del {
+	margin-left: auto;
+	padding: 1px 5px;
+	font-size: 10px;
+	opacity: 0.3;
+	flex-shrink: 0;
+}
+
+.pa-rec-action-del:hover {
+	opacity: 1;
+	color: rgb(255, 100, 100);
+	border-color: rgba(255, 100, 100, 0.4);
 }
 
 .pa-rec-action-index {
