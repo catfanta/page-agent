@@ -4,6 +4,7 @@
  */
 import { type AgentConfig, PageAgentCore } from '@page-agent/core'
 import { PageController, type PageControllerConfig } from '@page-agent/page-controller'
+import { Recorder, RecordingStore, Replayer } from '@page-agent/recorder'
 import { Panel, type PanelConfig } from '@page-agent/ui'
 
 export * from '@page-agent/core'
@@ -21,9 +22,14 @@ export class PageAgent extends PageAgentCore {
 
 		super({ ...config, pageController })
 
+		const recorder = new Recorder(pageController)
+		const replayer = new Replayer(pageController)
+		const store = RecordingStore.getInstance()
+
 		this.panel = new Panel(this, {
 			language: config.language,
 			promptForNextTask: config.promptForNextTask,
+			recording: { recorder, replayer, store },
 		})
 	}
 }
