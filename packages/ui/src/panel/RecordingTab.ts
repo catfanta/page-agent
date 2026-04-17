@@ -69,23 +69,26 @@ export class RecordingTab {
 		const { replayer, i18n } = this.deps
 
 		replayer.on('step:failed', ({ index, reason }) => {
+			replayer.clearHighlight()
 			this.statusEl.textContent = i18n.t('ui.recording.replayFailed', {
 				step: String(index + 1),
 				reason,
 			})
 		})
 		replayer.on('replay:done', () => {
+			replayer.clearHighlight()
 			this.statusEl.textContent = i18n.t('ui.recording.replayDone')
 		})
 	}
 
 	setRecordingState(recording: boolean): void {
-		const { i18n } = this.deps
+		const { replayer, i18n } = this.deps
 		if (recording) {
 			this.statusEl.textContent = i18n.t('ui.recording.recordingStatus')
 			this.previewEl.style.display = 'block'
 			this.startLivePreview()
 		} else {
+			replayer.clearHighlight()
 			this.statusEl.textContent = ''
 			this.previewEl.style.display = 'none'
 			this.stopLivePreview()

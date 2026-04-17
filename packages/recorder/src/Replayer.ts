@@ -38,9 +38,15 @@ export class Replayer {
 		return this
 	}
 
-	/** Stop an in-progress replay after the current step finishes. */
+	/** Stop an in-progress replay and immediately clear DOM highlights. */
 	abort(): void {
 		this.aborted = true
+		this.clearHighlight()
+	}
+
+	/** Remove all DOM annotation highlights created by updateTree(). */
+	clearHighlight(): void {
+		void this.controller.cleanUpHighlights()
 	}
 
 	async replay(recording: Recording): Promise<void> {
@@ -76,6 +82,7 @@ export class Replayer {
 			}
 
 			if (index === undefined) {
+				await this.controller.cleanUpHighlights()
 				this.emit('step:failed', {
 					index: i,
 					action,
@@ -89,6 +96,7 @@ export class Replayer {
 			this.emit('step:done', { index: i, action })
 		}
 
+		await this.controller.cleanUpHighlights()
 		this.emit('replay:done', {})
 	}
 
