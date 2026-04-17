@@ -1,6 +1,7 @@
 import type { Recorder, Recording, RecordingStore, Replayer } from '@page-agent/recorder'
 
 import type { I18n } from '../i18n'
+
 import './RecordingTab.css'
 
 export interface RecordingTabDeps {
@@ -21,7 +22,6 @@ export class RecordingTab {
 	private previewEl!: HTMLElement
 	private historyEl!: HTMLElement
 	private statusEl!: HTMLElement
-	private startStopBtn!: HTMLButtonElement
 
 	constructor(deps: RecordingTabDeps) {
 		this.deps = deps
@@ -41,11 +41,9 @@ export class RecordingTab {
 	}
 
 	private buildDOM(): void {
-		const { i18n } = this.deps
 		this.root.innerHTML = `
 			<div class="pa-rec-controls">
 				<span class="pa-rec-status"></span>
-				<button class="pa-rec-btn pa-rec-start-stop">${i18n.t('ui.recording.startRecording')}</button>
 			</div>
 			<div class="pa-rec-preview" style="display:none">
 				<div class="pa-rec-preview-list"></div>
@@ -57,27 +55,12 @@ export class RecordingTab {
 
 		this.controlsEl = this.root.querySelector('.pa-rec-controls')!
 		this.statusEl = this.root.querySelector('.pa-rec-status')!
-		this.startStopBtn = this.root.querySelector<HTMLButtonElement>('.pa-rec-start-stop')!
 		this.previewEl = this.root.querySelector('.pa-rec-preview')!
 		this.historyEl = this.root.querySelector('.pa-rec-history-list')!
 	}
 
 	private wireEvents(): void {
-		const { recorder, replayer, store, i18n } = this.deps
-
-		this.startStopBtn.addEventListener('click', async () => {
-			if (!recorder.isActive) {
-				await recorder.start()
-				this.setRecordingState(true)
-				this.startLivePreview()
-			} else {
-				const recording = recorder.stop()
-				await store.save(recording)
-				this.setRecordingState(false)
-				this.stopLivePreview()
-				await this.renderHistory()
-			}
-		})
+		const { replayer, i18n } = this.deps
 
 		replayer.on('step:failed', ({ index, reason }) => {
 			this.statusEl.textContent = i18n.t('ui.recording.replayFailed', {
@@ -90,24 +73,22 @@ export class RecordingTab {
 		})
 	}
 
-	private setRecordingState(recording: boolean): void {
+	setRecordingState(recording: boolean): void {
 		const { i18n } = this.deps
 		if (recording) {
-			this.startStopBtn.textContent = i18n.t('ui.recording.stopRecording')
-			this.startStopBtn.classList.add('pa-rec-active')
 			this.statusEl.textContent = i18n.t('ui.recording.recordingStatus')
 			this.previewEl.style.display = 'block'
+			this.startLivePreview()
 		} else {
-			this.startStopBtn.textContent = i18n.t('ui.recording.startRecording')
-			this.startStopBtn.classList.remove('pa-rec-active')
 			this.statusEl.textContent = ''
 			this.previewEl.style.display = 'none'
+			this.stopLivePreview()
 		}
 	}
 
 	private livePreviewTimer: ReturnType<typeof setInterval> | null = null
 
-	private startLivePreview(): void {
+	startLivePreview(): void {
 		const previewList = this.previewEl.querySelector('.pa-rec-preview-list')!
 		this.livePreviewTimer = setInterval(() => {
 			const actions = this.deps.recorder.recordedActions
@@ -125,14 +106,14 @@ export class RecordingTab {
 		}, 500)
 	}
 
-	private stopLivePreview(): void {
+	stopLivePreview(): void {
 		if (this.livePreviewTimer) {
 			clearInterval(this.livePreviewTimer)
 			this.livePreviewTimer = null
 		}
 	}
 
-	private async renderHistory(): Promise<void> {
+	async renderHistory(): Promise<void> {
 		const { store, replayer, i18n } = this.deps
 		const recordings = await store.list()
 

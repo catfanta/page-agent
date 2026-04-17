@@ -2,12 +2,12 @@ import type { Recorder, RecordingStore, Replayer } from '@page-agent/recorder'
 
 import { I18n, type SupportedLanguage } from '../i18n'
 import { truncate } from '../utils'
+import type { RecordingTabDeps } from './RecordingTab'
+import { RecordingTab } from './RecordingTab'
 import { createCard, createReflectionLines } from './cards'
 import type { AgentActivity, PanelAgentAdapter } from './types'
 
 import styles from './Panel.module.css'
-import type { RecordingTabDeps } from './RecordingTab'
-import { RecordingTab } from './RecordingTab'
 
 /**
  * Panel configuration
@@ -59,11 +59,11 @@ export class Panel {
 	#headerUpdateTimer: ReturnType<typeof setInterval> | null = null
 	#pendingHeaderText: string | null = null
 	#isAnimating = false
-	#activeTab: 'ai' | 'recording' = 'ai'
 	#recordingTab: RecordingTab | null = null
-	#tabBar: HTMLElement | null = null
-	#aiTabContent: HTMLElement | null = null
-	#recordingTabContent: HTMLElement | null = null
+	#recordingButton: HTMLButtonElement | null = null
+	#recListButton: HTMLButtonElement | null = null
+	#recListWrapper: HTMLElement | null = null
+	#isRecListExpanded = false
 
 	// Event handlers (bound for removal)
 	#onStatusChange = () => this.#handleStatusChange()
@@ -95,6 +95,11 @@ export class Panel {
 		this.#historySection = this.#wrapper.querySelector(`.${styles.historySection}`)!
 		this.#expandButton = this.#wrapper.querySelector(`.${styles.expandButton}`)!
 		this.#actionButton = this.#wrapper.querySelector(`.${styles.stopButton}`)!
+		this.#recordingButton =
+			this.#wrapper.querySelector<HTMLButtonElement>(`.${styles.recordingButton}`) ?? null
+		this.#recListButton =
+			this.#wrapper.querySelector<HTMLButtonElement>(`.${styles.recListButton}`) ?? null
+		this.#recListWrapper = this.#wrapper.querySelector(`.${styles.recListWrapper}`) ?? null
 		this.#inputSection = this.#wrapper.querySelector(`.${styles.inputSectionWrapper}`)!
 		this.#taskInput = this.#wrapper.querySelector(`.${styles.taskInput}`)!
 
@@ -391,30 +396,31 @@ export class Panel {
 	}
 
 	#initRecordingTab(cfg: NonNullable<PanelConfig['recording']>): void {
-		// Create tab bar
-		const tabBar = document.createElement('div')
-		tabBar.className = styles.tabBar
-		tabBar.innerHTML = `
-			<button class="${styles.tabBtn} ${styles.tabBtnActive}" data-tab="ai">AI</button>
-			<button class="${styles.tabBtn}" data-tab="recording">${this.#i18n.t('ui.recording.tab')}</button>
-		`
-		this.#tabBar = tabBar
+		// Show and wire recording button in header
+		if (this.#recordingButton) {
+			this.#recordingButton.style.display = 'flex'
+			this.#recordingButton.addEventListener('click', async (e) => {
+				e.stopPropagation()
+				const { recorder, store } = cfg
+				if (!recorder.isActive) {
+					await recorder.start()
+					this.#recordingTab?.setRecordingState(true)
+					this.#recordingButton!.textContent = '■'
+					this.#recordingButton!.title = this.#i18n.t('ui.recording.stopRecording')
+					this.#recordingButton!.classList.add(styles.recordingActive)
+				} else {
+					const recording = recorder.stop()
+					await store.save(recording)
+					this.#recordingTab?.setRecordingState(false)
+					this.#recordingButton!.textContent = '●'
+					this.#recordingButton!.title = this.#i18n.t('ui.recording.startRecording')
+					this.#recordingButton!.classList.remove(styles.recordingActive)
+					await this.#recordingTab?.renderHistory()
+				}
+			})
+		}
 
-		// Wrap existing historySection in a tabContent div
-		const aiContent = document.createElement('div')
-		aiContent.className = `${styles.tabContent} ${styles.tabContentActive}`
-		const historySectionWrapper = this.#wrapper.querySelector(`.${styles.historySectionWrapper}`)!
-		// Move historySection into aiContent
-		const existingHistorySection = this.#historySection
-		existingHistorySection.parentElement?.removeChild(existingHistorySection)
-		aiContent.appendChild(existingHistorySection)
-		this.#aiTabContent = aiContent
-
-		// Create recording tab content
-		const recordingContent = document.createElement('div')
-		recordingContent.className = styles.tabContent
-		this.#recordingTabContent = recordingContent
-
+		// Create recording tab and mount in recListWrapper
 		const deps: RecordingTabDeps = {
 			recorder: cfg.recorder,
 			replayer: cfg.replayer,
@@ -422,38 +428,38 @@ export class Panel {
 			i18n: this.#i18n,
 		}
 		this.#recordingTab = new RecordingTab(deps)
-		recordingContent.appendChild(this.#recordingTab.element)
+		this.#recListWrapper?.appendChild(this.#recordingTab.element)
 
-		// Insert tab bar + content into historySectionWrapper
-		historySectionWrapper.prepend(tabBar)
-		historySectionWrapper.appendChild(aiContent)
-		historySectionWrapper.appendChild(recordingContent)
-
-		// Tab switching
-		tabBar.addEventListener('click', (e) => {
-			const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]')
-			if (!btn) return
-			const tab = btn.dataset.tab as 'ai' | 'recording'
-			this.#switchTab(tab)
-		})
+		// Show and wire rec list toggle button
+		if (this.#recListButton) {
+			this.#recListButton.style.display = 'flex'
+			this.#recListButton.addEventListener('click', (e) => {
+				e.stopPropagation()
+				this.#toggleRecList()
+			})
+		}
 	}
 
-	#switchTab(tab: 'ai' | 'recording'): void {
-		this.#activeTab = tab
-
-		const tabs = this.#tabBar?.querySelectorAll<HTMLButtonElement>('[data-tab]')
-		tabs?.forEach((btn) => {
-			btn.classList.toggle(styles.tabBtnActive, btn.dataset.tab === tab)
-		})
-
-		this.#aiTabContent?.classList.toggle(styles.tabContentActive, tab === 'ai')
-		this.#recordingTabContent?.classList.toggle(styles.tabContentActive, tab === 'recording')
-
-		if (tab === 'recording') {
-			void this.#recordingTab?.refresh()
-			// Expand panel if collapsed
-			if (!this.#isExpanded) this.#expand()
+	#toggleRecList(): void {
+		if (this.#isRecListExpanded) {
+			this.#collapseRecList()
+		} else {
+			this.#expandRecList()
 		}
+	}
+
+	#expandRecList(): void {
+		this.#isRecListExpanded = true
+		this.#collapse()
+		this.wrapper.classList.add(styles.recListShown)
+		this.#recListButton?.classList.add(styles.recListBtnActive)
+		void this.#recordingTab?.refresh()
+	}
+
+	#collapseRecList(): void {
+		this.#isRecListExpanded = false
+		this.wrapper.classList.remove(styles.recListShown)
+		this.#recListButton?.classList.remove(styles.recListBtnActive)
 	}
 
 	#createWrapper(): HTMLElement {
@@ -482,6 +488,12 @@ export class Panel {
 					<div class="${styles.statusText}">${this.#i18n.t('ui.panel.ready')}</div>
 				</div>
 				<div class="${styles.controls}">
+					<button class="${styles.controlButton} ${styles.recordingButton}" title="${this.#i18n.t('ui.recording.startRecording')}" style="display:none">
+						●
+					</button>
+					<button class="${styles.controlButton} ${styles.recListButton}" title="${this.#i18n.t('ui.recording.tab')}" style="display:none">
+						≡
+					</button>
 					<button class="${styles.controlButton} ${styles.expandButton}" title="${this.#i18n.t('ui.panel.expand')}">
 						▼
 					</button>
@@ -490,6 +502,7 @@ export class Panel {
 					</button>
 				</div>
 			</div>
+			<div class="${styles.recListWrapper}"></div>
 			<div class="${styles.inputSectionWrapper} ${styles.hidden}">
 				<div class="${styles.inputSection}">
 					<input 
@@ -555,6 +568,7 @@ export class Panel {
 		this.#isExpanded = true
 		this.wrapper.classList.add(styles.expanded)
 		this.#expandButton.textContent = '▲'
+		this.#collapseRecList()
 	}
 
 	#collapse(): void {
