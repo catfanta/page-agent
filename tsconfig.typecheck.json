@@ -17,6 +17,7 @@
     "include": [
         "packages/llms/src/**/*",
         "packages/page-controller/src/**/*",
+        "packages/recorder/src/**/*",
         "packages/ui/src/**/*",
         "packages/core/src/**/*",
         "packages/page-agent/src/**/*",

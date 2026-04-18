@@ -226,6 +226,34 @@ export class PageController extends EventTarget {
 		dom.cleanUpHighlights()
 	}
 
+	// ======= Index Queries =======
+
+	/**
+	 * Find the highlight index for a given DOM element.
+	 * Walks up the ancestor chain until a mapped element is found.
+	 * Returns undefined if the element is not in the current selectorMap.
+	 *
+	 * Requires updateTree() to have been called at least once.
+	 */
+	findIndexByElement(target: HTMLElement): number | undefined {
+		let el: HTMLElement | null = target
+		while (el) {
+			for (const [index, node] of this.selectorMap) {
+				if (node.ref === el) return index
+			}
+			el = el.parentElement
+		}
+		return undefined
+	}
+
+	/**
+	 * Get a snapshot of the current index → element text map.
+	 * Useful for recorders that need to describe elements by their text.
+	 */
+	getElementTextSnapshot(): ReadonlyMap<number, string> {
+		return this.elementTextMap
+	}
+
 	// ======= Element Actions =======
 
 	/**

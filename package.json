@@ -5,6 +5,7 @@
     "type": "module",
     "workspaces": [
         "packages/page-controller",
+        "packages/recorder",
         "packages/ui",
         "packages/llms",
         "packages/core",
