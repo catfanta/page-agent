@@ -77,6 +77,10 @@ export class Recorder {
 		}
 		this.listeners = []
 		this.unpatchHistory()
+		if (this.scrollDebounceTimer !== null) {
+			clearTimeout(this.scrollDebounceTimer)
+			this.scrollDebounceTimer = null
+		}
 		this.pageController.cleanUpHighlights()
 	}
 
@@ -90,24 +94,27 @@ export class Recorder {
 
 	// ─── Private handlers ────────────────────────────────────────────────────
 
+	private async resolveElement(
+		el: HTMLElement,
+	): Promise<{ index: number; elementText: string; elementHint: string } | undefined> {
+		await this.pageController.updateTree()
+		const index = this.pageController.findIndexByElement(el)
+		if (index === undefined) return undefined
+		return {
+			index,
+			elementText: this.pageController.getElementTextSnapshot().get(index) ?? '',
+			elementHint: this.getElementHint(el),
+		}
+	}
+
 	private handleClick = async (e: Event): Promise<void> => {
 		if (this.agentActing) return
 		if (!(e.target instanceof HTMLElement)) return
 
-		// Refresh DOM index before reverse-lookup
-		await this.pageController.updateTree()
+		const resolved = await this.resolveElement(e.target)
+		if (!resolved) return
 
-		const index = this.pageController.findIndexByElement(e.target)
-		if (index === undefined) return
-
-		const elementText = this.pageController.getElementTextSnapshot().get(index) ?? ''
-
-		const action: ClickAction = {
-			type: 'click_element_by_index',
-			index,
-			elementText,
-			elementHint: this.getElementHint(e.target),
-		}
+		const action: ClickAction = { type: 'click_element_by_index', ...resolved }
 		this.pushStep(action)
 	}
 
@@ -115,16 +122,11 @@ export class Recorder {
 		if (this.agentActing) return
 		if (!(e.target instanceof HTMLElement)) return
 
-		await this.pageController.updateTree()
+		const resolved = await this.resolveElement(e.target)
+		if (!resolved) return
 
-		const index = this.pageController.findIndexByElement(e.target)
-		if (index === undefined) return
-
-		const elementText = this.pageController.getElementTextSnapshot().get(index) ?? ''
-
+		const { index, elementText, elementHint } = resolved
 		let action: RecordedAction
-
-		const elementHint = this.getElementHint(e.target)
 
 		if (e.target instanceof HTMLSelectElement) {
 			const selected = e.target.options[e.target.selectedIndex]

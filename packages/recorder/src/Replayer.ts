@@ -65,21 +65,19 @@ export class Replayer {
 		const snapshot = this.pageController.getElementTextSnapshot()
 		const normalizedRecorded = Replayer.normalizeText(recordedText)
 
-		// 1. text match（去掉 [N] 前缀后比对，避免 index 变化导致匹配失败）
+		// normalizeText strips the [N] prefix so index changes don't break matching
 		if (normalizedRecorded) {
 			for (const [idx, text] of snapshot) {
 				if (Replayer.normalizeText(text) === normalizedRecorded) return idx
 			}
 		}
 
-		// 2. hint match (aria-label / title / placeholder contained in elementText)
 		if (elementHint) {
 			for (const [idx, text] of snapshot) {
 				if (text.includes(elementHint)) return idx
 			}
 		}
 
-		// 3. fall back to recorded index
 		console.warn(
 			`[Replayer] element not found (text="${recordedText}", hint="${elementHint ?? ''}"), falling back to recorded index ${recordedIndex}`,
 		)
