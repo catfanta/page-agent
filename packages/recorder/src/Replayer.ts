@@ -57,13 +57,18 @@ export class Replayer {
 		this.config.onDone(steps)
 	}
 
+	private static normalizeText(s: string): string {
+		return s.replace(/^\[\d+\]/, '').trim()
+	}
+
 	private resolveIndex(recordedIndex: number, recordedText: string, elementHint?: string): number {
 		const snapshot = this.pageController.getElementTextSnapshot()
+		const normalizedRecorded = Replayer.normalizeText(recordedText)
 
-		// 1. exact text match
-		if (recordedText) {
+		// 1. text match（去掉 [N] 前缀后比对，避免 index 变化导致匹配失败）
+		if (normalizedRecorded) {
 			for (const [idx, text] of snapshot) {
-				if (text === recordedText) return idx
+				if (Replayer.normalizeText(text) === normalizedRecorded) return idx
 			}
 		}
 
