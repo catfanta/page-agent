@@ -22,7 +22,12 @@ export class Recorder {
 	readonly steps: RecordedStep[] = []
 
 	private config: Required<RecorderConfig>
-	private listeners: { target: EventTarget; type: string; fn: EventListener }[] = []
+	private listeners: {
+		target: EventTarget
+		type: string
+		fn: EventListener
+		options?: boolean | AddEventListenerOptions
+	}[] = []
 
 	/**
 	 * Flag set to true while PageAgent is executing synthetic events,
@@ -67,11 +72,12 @@ export class Recorder {
 
 	/** Stop listening and clean up all event listeners. */
 	stop(): void {
-		for (const { target, type, fn } of this.listeners) {
-			target.removeEventListener(type, fn)
+		for (const { target, type, fn, options } of this.listeners) {
+			target.removeEventListener(type, fn, options as boolean)
 		}
 		this.listeners = []
 		this.unpatchHistory()
+		this.pageController.cleanUpHighlights()
 	}
 
 	/**
@@ -96,7 +102,12 @@ export class Recorder {
 
 		const elementText = this.pageController.getElementTextSnapshot().get(index) ?? ''
 
-		const action: ClickAction = { type: 'click_element_by_index', index, elementText }
+		const action: ClickAction = {
+			type: 'click_element_by_index',
+			index,
+			elementText,
+			elementHint: this.getElementHint(e.target),
+		}
 		this.pushStep(action)
 	}
 
@@ -113,6 +124,8 @@ export class Recorder {
 
 		let action: RecordedAction
 
+		const elementHint = this.getElementHint(e.target)
+
 		if (e.target instanceof HTMLSelectElement) {
 			const selected = e.target.options[e.target.selectedIndex]
 			const optionText = selected?.textContent?.trim() ?? ''
@@ -120,6 +133,7 @@ export class Recorder {
 				type: 'select_dropdown_option',
 				index,
 				elementText,
+				elementHint,
 				optionText,
 			} satisfies SelectAction
 		} else if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -127,6 +141,7 @@ export class Recorder {
 				type: 'input_text',
 				index,
 				elementText,
+				elementHint,
 				text: e.target.value,
 			} satisfies InputAction
 		} else if ((e.target as HTMLElement).isContentEditable) {
@@ -134,6 +149,7 @@ export class Recorder {
 				type: 'input_text',
 				index,
 				elementText,
+				elementHint,
 				text: (e.target as HTMLElement).innerText,
 			} satisfies InputAction
 		} else {
@@ -143,14 +159,16 @@ export class Recorder {
 		this.pushStep(action)
 	}
 
-	private scrollRafPending = false
+	private scrollDebounceTimer: ReturnType<typeof setTimeout> | null = null
 	private handleScroll = (): void => {
 		if (this.agentActing) return
-		if (this.scrollRafPending) return
 
-		this.scrollRafPending = true
-		requestAnimationFrame(() => {
-			this.scrollRafPending = false
+		if (this.scrollDebounceTimer !== null) {
+			clearTimeout(this.scrollDebounceTimer)
+		}
+
+		this.scrollDebounceTimer = setTimeout(() => {
+			this.scrollDebounceTimer = null
 			const delta = window.scrollY - this.lastScrollY
 			if (Math.abs(delta) < this.config.scrollThreshold) {
 				this.lastScrollY = window.scrollY
@@ -158,7 +176,7 @@ export class Recorder {
 			}
 			this.pushStep({ type: 'scroll', down: delta > 0, pixels: Math.round(Math.abs(delta)) })
 			this.lastScrollY = window.scrollY
-		})
+		}, 300)
 	}
 
 	private handleNavigate = (): void => {
@@ -199,6 +217,15 @@ export class Recorder {
 
 	// ─── Helpers ─────────────────────────────────────────────────────────────
 
+	private getElementHint(el: HTMLElement): string {
+		return (
+			el.getAttribute('aria-label') ||
+			el.getAttribute('title') ||
+			(el as HTMLInputElement).placeholder ||
+			''
+		)
+	}
+
 	private on(
 		target: EventTarget,
 		type: string,
@@ -207,7 +234,7 @@ export class Recorder {
 	): void {
 		const bound = fn.bind(this) as EventListener
 		target.addEventListener(type, bound, optionsOrCapture as boolean)
-		this.listeners.push({ target, type, fn: bound })
+		this.listeners.push({ target, type, fn: bound, options: optionsOrCapture })
 	}
 
 	private pushStep(action: RecordedAction): void {

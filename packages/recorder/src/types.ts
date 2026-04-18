@@ -9,12 +9,16 @@ export interface ClickAction {
 	type: 'click_element_by_index'
 	index: number
 	elementText: string
+	/** aria-label | title | placeholder — fallback when elementText is empty */
+	elementHint?: string
 }
 
 export interface InputAction {
 	type: 'input_text'
 	index: number
 	elementText: string
+	/** aria-label | title | placeholder — fallback when elementText is empty */
+	elementHint?: string
 	text: string
 }
 
@@ -22,6 +26,8 @@ export interface SelectAction {
 	type: 'select_dropdown_option'
 	index: number
 	elementText: string
+	/** aria-label | title | placeholder — fallback when elementText is empty */
+	elementHint?: string
 	optionText: string
 }
 
