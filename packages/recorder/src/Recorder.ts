@@ -247,5 +247,7 @@ export class Recorder {
 		}
 		this.steps.push(step)
 		this.config.onStep(step)
+		// Re-index after click effects settle (React re-renders, async DOM updates)
+		setTimeout(() => this.pageController.updateTree(), 500)
 	}
 }
