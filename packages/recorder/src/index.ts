@@ -3,3 +3,13 @@ export { Replayer } from './Replayer'
 export type { RecorderConfig, RecordedStep, RecordedAction, RecordedActionType } from './types'
 export type { ClickAction, InputAction, SelectAction, NavigateAction, ScrollAction } from './types'
 export type { ReplayerConfig } from './Replayer'
+
+export type { RecordingRecord } from './db'
+export {
+	saveRecording,
+	listRecordings,
+	getRecording,
+	updateRecording,
+	deleteRecording,
+	clearRecordings,
+} from './db'

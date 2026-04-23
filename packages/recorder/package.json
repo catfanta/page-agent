@@ -30,7 +30,8 @@
         "dev:demo": "concurrently \"vite build --config vite.iife.config.js --watch\" \"npx serve dist/iife -p 5175\""
     },
     "dependencies": {
-        "@page-agent/page-controller": "1.8.0"
+        "@page-agent/page-controller": "1.8.0",
+        "idb": "^8.0.3"
     },
     "devDependencies": {
         "concurrently": "^9.1.2",

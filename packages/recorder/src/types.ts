@@ -57,6 +57,8 @@ export interface RecordedStep {
 	timestamp: number
 }
 
+export type { RecordingRecord } from './db'
+
 export interface RecorderConfig {
 	/** Called after every user action is captured */
 	onStep?: (step: RecordedStep) => void
