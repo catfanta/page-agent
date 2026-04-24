@@ -11,13 +11,12 @@ export interface ReplayerConfig {
 }
 
 export class Replayer {
+	private pageController: PageController
 	private config: Required<ReplayerConfig>
 	private aborted = false
 
-	constructor(
-		private readonly pageController: PageController,
-		config: ReplayerConfig = {},
-	) {
+	constructor(pageController: PageController, config: ReplayerConfig = {}) {
+		this.pageController = pageController
 		this.config = {
 			stepDelay: config.stepDelay ?? 500,
 			onStepStart: config.onStepStart ?? (() => {}),
@@ -79,7 +78,7 @@ export class Replayer {
 		}
 
 		console.warn(
-			`[Replayer] element not found (text="${recordedText}", hint="${elementHint ?? ''}"), falling back to recorded index ${recordedIndex}`,
+			`[Replayer] element not found (text="${recordedText}", hint="${elementHint ?? ''}"), falling back to recorded index ${recordedIndex}`
 		)
 		return recordedIndex
 	}
@@ -108,7 +107,7 @@ export class Replayer {
 				return { success: true, message: `Navigated to ${action.url}` }
 
 			case 'scroll':
-				return this.pageController.scroll({ down: action.down, pixels: action.pixels })
+				return this.pageController.scroll({ down: action.down, numPages: 1, pixels: action.pixels })
 
 			default:
 				return { success: false, message: `Unknown action type: ${(action as any).type}` }

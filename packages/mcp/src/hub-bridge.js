@@ -34,6 +34,9 @@ export class HubBridge {
 	/** @type {{ resolve: (r: {success: boolean, data: string}) => void, reject: (e: Error) => void } | null} */
 	#pendingTask = null
 
+	/** @type {Map<string, { resolve: (data: unknown) => void, reject: (e: Error) => void }>} */
+	#pendingCommands = new Map()
+
 	/** @param {number} port */
 	constructor(port) {
 		this.port = port
@@ -97,6 +100,55 @@ export class HubBridge {
 		}
 	}
 
+	/**
+	 * Send a typed command to the hub and wait for its response.
+	 * @param {string} type
+	 * @param {Record<string, unknown>} [payload]
+	 * @returns {Promise<unknown>}
+	 */
+	async sendCommand(type, payload = {}) {
+		if (!this.connected) throw new Error('Hub is not connected. Is the extension running?')
+		const id = crypto.randomUUID()
+		return new Promise((resolve, reject) => {
+			this.#pendingCommands.set(id, { resolve, reject })
+			this.#hub.send(JSON.stringify({ type, id, ...payload }))
+		})
+	}
+
+	async recorderStart() {
+		return this.sendCommand('recorder_start')
+	}
+	/** @param {string} [name] — if provided, auto-saves the recording */
+	async recorderStop(name) {
+		return this.sendCommand('recorder_stop', name ? { name } : {})
+	}
+	/** @param {string} recordingId */
+	async replayStart(recordingId) {
+		return this.sendCommand('replay_start', { recordingId })
+	}
+	async replayStop() {
+		return this.sendCommand('replay_stop')
+	}
+	async recordingsList() {
+		return this.sendCommand('recordings_list')
+	}
+	/** @param {string} id */
+	async recordingsGet(id) {
+		return this.sendCommand('recordings_get', { id })
+	}
+	/** @param {string} id */
+	async recordingsDelete(id) {
+		return this.sendCommand('recordings_delete', { id })
+	}
+	/**
+	 * @param {string} name
+	 * @param {unknown[]} steps
+	 * @param {string} startUrl
+	 */
+	async recordingsSave(name, steps, startUrl) {
+		return this.sendCommand('recordings_save', { name, steps, startUrl })
+	}
+
 	// TODO: Add version checking
 
 	/** @param {import('ws').WebSocket} ws */
@@ -110,7 +162,7 @@ export class HubBridge {
 		console.error('[page-agent-mcp] Hub connected')
 
 		ws.on('message', (/** @type {Buffer} */ rawData) => {
-			/** @type {{ type: string, success?: boolean, data?: string, message?: string }} */
+			/** @type {{ type: string, id?: string, success?: boolean, data?: unknown, message?: string, error?: string }} */
 			let msg
 			try {
 				msg = JSON.parse(rawData.toString('utf-8'))
@@ -124,6 +176,13 @@ export class HubBridge {
 			} else if (msg.type === 'error') {
 				this.#pendingTask?.reject(new Error(msg.message ?? 'Unknown error from hub'))
 				this.#pendingTask = null
+			} else if (msg.type === 'response' && msg.id) {
+				const pending = this.#pendingCommands.get(msg.id)
+				if (pending) {
+					this.#pendingCommands.delete(msg.id)
+					if (msg.success) pending.resolve(msg.data)
+					else pending.reject(new Error(msg.error ?? 'Command failed'))
+				}
 			}
 		})
 
@@ -134,6 +193,10 @@ export class HubBridge {
 				this.#pendingTask.reject(new Error('Hub disconnected while task was running'))
 				this.#pendingTask = null
 			}
+			for (const pending of this.#pendingCommands.values()) {
+				pending.reject(new Error('Hub disconnected while command was pending'))
+			}
+			this.#pendingCommands.clear()
 		})
 	}
 }

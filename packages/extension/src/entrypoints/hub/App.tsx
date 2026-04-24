@@ -1,5 +1,7 @@
+import { deleteRecording, getRecording, listRecordings, saveRecording } from '@page-agent/recorder'
+import type { RecordedStep } from '@page-agent/recorder'
 import { FoldVertical, Plug, PlugZap, Square, UnfoldVertical, Unplug } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAgent } from '@/agent/useAgent'
 import { ActivityCard, EventCard } from '@/components/cards'
@@ -7,11 +9,153 @@ import { Logo, MotionOverlay, StatusDot } from '@/components/misc'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 
-import { useHubWs } from './hub-ws'
+import { type CommandType, useHubWs } from './hub-ws'
 
 export default function App() {
 	const { status, history, activity, currentTask, config, execute, stop, configure } = useAgent()
-	const { wsState } = useHubWs(execute, stop, configure, config)
+
+	// Tracks the tab being recorded so recorder_stop can target the same tab
+	const activeRecorderTabId = useRef<number | null>(null)
+	// Tracks the tab being replayed so replay_stop can target the same tab
+	const activeReplayTabId = useRef<number | null>(null)
+
+	const onCommand = useCallback(
+		async (type: CommandType, payload: Record<string, unknown>): Promise<unknown> => {
+			switch (type) {
+				case 'recorder_start': {
+					const tabResult = await chrome.runtime.sendMessage({
+						type: 'TAB_CONTROL',
+						action: 'get_active_tab',
+					})
+					const tabId = tabResult?.tab?.id as number | undefined
+					if (!tabId) throw new Error('No active tab found')
+
+					const result = await chrome.runtime.sendMessage({
+						type: 'RECORDER_CONTROL',
+						action: 'start',
+						tabId,
+					})
+					if (!result?.success) throw new Error(result?.error ?? 'Failed to start recorder')
+
+					activeRecorderTabId.current = tabId
+					return { tabId, url: result.url }
+				}
+
+				case 'recorder_stop': {
+					const tabId = activeRecorderTabId.current
+					if (!tabId) throw new Error('No active recording')
+
+					const result = await chrome.runtime.sendMessage({
+						type: 'RECORDER_CONTROL',
+						action: 'stop',
+						tabId,
+					})
+					if (!result?.success) throw new Error(result?.error ?? 'Failed to stop recorder')
+
+					activeRecorderTabId.current = null
+					const steps = result.steps as RecordedStep[]
+					const startUrl = result.startUrl as string
+
+					const name = payload.name as string | undefined
+					if (name) {
+						const saved = await saveRecording({ name, steps, startUrl })
+						return { recording: saved, stepsCount: steps.length }
+					}
+					return { steps, startUrl, stepsCount: steps.length }
+				}
+
+				case 'replay_start': {
+					const recordingId = payload.recordingId as string | undefined
+					const inlineSteps = payload.steps as RecordedStep[] | undefined
+
+					let steps: RecordedStep[]
+					if (inlineSteps && Array.isArray(inlineSteps)) {
+						steps = inlineSteps
+					} else if (recordingId) {
+						const recording = await getRecording(recordingId)
+						if (!recording) throw new Error(`Recording "${recordingId}" not found`)
+						steps = recording.steps
+					} else {
+						throw new Error('Either recordingId or steps required')
+					}
+
+					const tabResult = await chrome.runtime.sendMessage({
+						type: 'TAB_CONTROL',
+						action: 'get_active_tab',
+					})
+					const tabId = tabResult?.tab?.id as number | undefined
+					if (!tabId) throw new Error('No active tab found')
+
+					activeReplayTabId.current = tabId
+					const result = await chrome.runtime.sendMessage({
+						type: 'REPLAYER_CONTROL',
+						action: 'start',
+						tabId,
+						payload: { steps },
+					})
+					activeReplayTabId.current = null
+
+					if (!result?.success) throw new Error(result?.error ?? 'Replay failed')
+					return result
+				}
+
+				case 'replay_stop': {
+					const tabId = activeReplayTabId.current
+					if (!tabId) return { stopped: false, reason: 'No active replay' }
+
+					const result = await chrome.runtime.sendMessage({
+						type: 'REPLAYER_CONTROL',
+						action: 'stop',
+						tabId,
+					})
+					activeReplayTabId.current = null
+					return result ?? { stopped: true }
+				}
+
+				case 'recordings_list': {
+					const recordings = await listRecordings()
+					return recordings.map((r) => ({
+						id: r.id,
+						name: r.name,
+						startUrl: r.startUrl,
+						createdAt: r.createdAt,
+						stepsCount: r.steps.length,
+					}))
+				}
+
+				case 'recordings_get': {
+					const id = payload.id as string | undefined
+					if (!id) throw new Error('id required')
+					const recording = await getRecording(id)
+					if (!recording) throw new Error(`Recording "${id}" not found`)
+					return recording
+				}
+
+				case 'recordings_delete': {
+					const id = payload.id as string | undefined
+					if (!id) throw new Error('id required')
+					await deleteRecording(id)
+					return { deleted: true, id }
+				}
+
+				case 'recordings_save': {
+					const name = payload.name as string | undefined
+					const steps = payload.steps as RecordedStep[] | undefined
+					const startUrl = (payload.startUrl as string) ?? ''
+					if (!name) throw new Error('name required')
+					if (!steps || !Array.isArray(steps)) throw new Error('steps array required')
+					const saved = await saveRecording({ name, steps, startUrl })
+					return saved
+				}
+
+				default:
+					throw new Error(`Unknown command type: ${type}`)
+			}
+		},
+		[]
+	)
+
+	const { wsState } = useHubWs(execute, stop, configure, config, onCommand)
 
 	const historyRef = useRef<HTMLDivElement>(null)
 

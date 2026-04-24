@@ -93,6 +93,165 @@ mcpServer.registerTool(
 	}
 )
 
+// --- Recorder tools ---
+
+mcpServer.registerTool(
+	'recorder_start',
+	{
+		description:
+			'Start recording user interactions in the active browser tab. Returns the tab ID and starting URL. Only one recording can be active at a time; calling this again replaces any previous recording.',
+	},
+	async () => {
+		try {
+			const data = await hub.recorderStart()
+			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+		} catch (err) {
+			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+		}
+	}
+)
+
+mcpServer.registerTool(
+	'recorder_stop',
+	{
+		description:
+			'Stop the current recording and return all captured steps. Optionally provide a name to save it to IndexedDB automatically.',
+		inputSchema: {
+			name: z
+				.string()
+				.optional()
+				.describe(
+					'If provided, saves the recording under this name and returns { recording, stepsCount }. If omitted, returns { steps, startUrl, stepsCount }.'
+				),
+		},
+	},
+	async ({ name }) => {
+		try {
+			const data = await hub.recorderStop(name)
+			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+		} catch (err) {
+			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+		}
+	}
+)
+
+mcpServer.registerTool(
+	'replay_start',
+	{
+		description:
+			'Replay a saved recording in the active browser tab. Blocks until all steps complete. Provide either recordingId (loads from IndexedDB) or inline steps array.',
+		inputSchema: {
+			recordingId: z
+				.string()
+				.optional()
+				.describe('ID of a saved recording to load from IndexedDB.'),
+			steps: z
+				.array(z.unknown())
+				.optional()
+				.describe('Inline steps array from a previous recorder_stop call.'),
+		},
+	},
+	async ({ recordingId, steps }) => {
+		try {
+			const payload = recordingId ? { recordingId } : { steps }
+			const data = await hub.sendCommand('replay_start', payload)
+			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+		} catch (err) {
+			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+		}
+	}
+)
+
+mcpServer.registerTool(
+	'replay_stop',
+	{
+		description: 'Abort the currently running replay.',
+	},
+	async () => {
+		try {
+			const data = await hub.replayStop()
+			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+		} catch (err) {
+			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+		}
+	}
+)
+
+// --- Recordings storage tools ---
+
+mcpServer.registerTool(
+	'recordings_list',
+	{
+		description:
+			'List all saved recordings in the extension IndexedDB, newest first. Returns id, name, startUrl, createdAt, stepsCount for each.',
+	},
+	async () => {
+		try {
+			const data = await hub.recordingsList()
+			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+		} catch (err) {
+			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+		}
+	}
+)
+
+mcpServer.registerTool(
+	'recordings_get',
+	{
+		description: 'Get a saved recording by ID, including its full steps array.',
+		inputSchema: {
+			id: z.string().describe('Recording ID returned by recordings_list or recorder_stop.'),
+		},
+	},
+	async ({ id }) => {
+		try {
+			const data = await hub.recordingsGet(id)
+			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+		} catch (err) {
+			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+		}
+	}
+)
+
+mcpServer.registerTool(
+	'recordings_delete',
+	{
+		description: 'Delete a saved recording from IndexedDB.',
+		inputSchema: {
+			id: z.string().describe('Recording ID to delete.'),
+		},
+	},
+	async ({ id }) => {
+		try {
+			const data = await hub.recordingsDelete(id)
+			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+		} catch (err) {
+			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+		}
+	}
+)
+
+mcpServer.registerTool(
+	'recordings_save',
+	{
+		description:
+			'Save a steps array as a named recording in IndexedDB. Use this after recorder_stop when you did not pass a name.',
+		inputSchema: {
+			name: z.string().describe('Display name for the recording.'),
+			steps: z.array(z.unknown()).describe('Steps array from recorder_stop.'),
+			startUrl: z.string().optional().describe('Starting URL of the recording.'),
+		},
+	},
+	async ({ name, steps, startUrl }) => {
+		try {
+			const data = await hub.recordingsSave(name, steps, startUrl ?? '')
+			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+		} catch (err) {
+			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+		}
+	}
+)
+
 const transport = new StdioServerTransport()
 await mcpServer.connect(transport)
 console.error('[page-agent-mcp] MCP server ready (stdio)')
