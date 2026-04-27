@@ -60,7 +60,7 @@ export class Recorder {
 		this.on(document, 'change', this.handleChange, true)
 
 		// scroll — throttled via requestAnimationFrame
-		this.on(window, 'scroll', this.handleScroll, { passive: true, capture: false } as any)
+		this.on(window, 'scroll', this.handleScroll, { passive: true, capture: false })
 
 		// navigation
 		this.on(window, 'popstate', this.handleNavigate)
@@ -95,7 +95,7 @@ export class Recorder {
 	// ─── Private handlers ────────────────────────────────────────────────────
 
 	private async resolveElement(
-		el: HTMLElement,
+		el: HTMLElement
 	): Promise<{ index: number; elementText: string; elementHint: string } | undefined> {
 		await this.pageController.updateTree()
 		const index = this.pageController.findIndexByElement(el)

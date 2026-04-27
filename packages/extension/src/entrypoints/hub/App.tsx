@@ -14,9 +14,7 @@ import { type CommandType, useHubWs } from './hub-ws'
 export default function App() {
 	const { status, history, activity, currentTask, config, execute, stop, configure } = useAgent()
 
-	// Tracks the tab being recorded so recorder_stop can target the same tab
 	const activeRecorderTabId = useRef<number | null>(null)
-	// Tracks the tab being replayed so replay_stop can target the same tab
 	const activeReplayTabId = useRef<number | null>(null)
 
 	const onCommand = useCallback(

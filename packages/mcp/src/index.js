@@ -7,6 +7,15 @@ import * as z from 'zod/v4'
 
 import { HubBridge } from './hub-bridge.js'
 
+/** @param {unknown} data */
+function ok(data) {
+	return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+}
+/** @param {Error} err */
+function fail(err) {
+	return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+}
+
 const env = process.env
 const port = parseInt(env.PORT || '38401')
 
@@ -59,10 +68,7 @@ mcpServer.registerTool(
 				],
 			}
 		} catch (err) {
-			return {
-				content: [{ type: 'text', text: `Error: ${err.message}` }],
-				isError: true,
-			}
+			return fail(err)
 		}
 	}
 )
@@ -103,10 +109,9 @@ mcpServer.registerTool(
 	},
 	async () => {
 		try {
-			const data = await hub.recorderStart()
-			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+			return ok(await hub.recorderStart())
 		} catch (err) {
-			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+			return fail(err)
 		}
 	}
 )
@@ -127,10 +132,9 @@ mcpServer.registerTool(
 	},
 	async ({ name }) => {
 		try {
-			const data = await hub.recorderStop(name)
-			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+			return ok(await hub.recorderStop(name))
 		} catch (err) {
-			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+			return fail(err)
 		}
 	}
 )
@@ -153,11 +157,9 @@ mcpServer.registerTool(
 	},
 	async ({ recordingId, steps }) => {
 		try {
-			const payload = recordingId ? { recordingId } : { steps }
-			const data = await hub.sendCommand('replay_start', payload)
-			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+			return ok(await hub.sendCommand('replay_start', recordingId ? { recordingId } : { steps }))
 		} catch (err) {
-			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+			return fail(err)
 		}
 	}
 )
@@ -169,10 +171,9 @@ mcpServer.registerTool(
 	},
 	async () => {
 		try {
-			const data = await hub.replayStop()
-			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+			return ok(await hub.replayStop())
 		} catch (err) {
-			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+			return fail(err)
 		}
 	}
 )
@@ -187,10 +188,9 @@ mcpServer.registerTool(
 	},
 	async () => {
 		try {
-			const data = await hub.recordingsList()
-			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+			return ok(await hub.recordingsList())
 		} catch (err) {
-			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+			return fail(err)
 		}
 	}
 )
@@ -205,10 +205,9 @@ mcpServer.registerTool(
 	},
 	async ({ id }) => {
 		try {
-			const data = await hub.recordingsGet(id)
-			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+			return ok(await hub.recordingsGet(id))
 		} catch (err) {
-			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+			return fail(err)
 		}
 	}
 )
@@ -223,10 +222,9 @@ mcpServer.registerTool(
 	},
 	async ({ id }) => {
 		try {
-			const data = await hub.recordingsDelete(id)
-			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+			return ok(await hub.recordingsDelete(id))
 		} catch (err) {
-			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+			return fail(err)
 		}
 	}
 )
@@ -244,10 +242,9 @@ mcpServer.registerTool(
 	},
 	async ({ name, steps, startUrl }) => {
 		try {
-			const data = await hub.recordingsSave(name, steps, startUrl ?? '')
-			return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }
+			return ok(await hub.recordingsSave(name, steps, startUrl ?? ''))
 		} catch (err) {
-			return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true }
+			return fail(err)
 		}
 	}
 )

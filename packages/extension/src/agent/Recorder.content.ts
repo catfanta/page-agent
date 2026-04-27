@@ -13,7 +13,6 @@ const PREFIX = '[Recorder.content]'
 let sharedPC: PageController | null = null
 let recorder: Recorder | null = null
 let replayer: Replayer | null = null
-let capturedSteps: RecordedStep[] = []
 let recordingStartUrl = ''
 
 function getSharedPC(): PageController {
@@ -47,12 +46,9 @@ function handleRecorderMessage(
 				recorder.stop()
 				recorder = null
 			}
-			capturedSteps = []
 			recordingStartUrl = window.location.href
 
-			recorder = new Recorder(getSharedPC(), {
-				onStep: (step) => capturedSteps.push(step),
-			})
+			recorder = new Recorder(getSharedPC())
 			recorder.start()
 
 			console.debug(PREFIX, 'recording started on', recordingStartUrl)
@@ -61,18 +57,20 @@ function handleRecorderMessage(
 		}
 
 		case 'stop': {
-			if (recorder) {
-				recorder.stop()
-				recorder = null
-			}
-			const steps = [...capturedSteps]
+			const steps = recorder ? [...recorder.steps] : []
+			recorder?.stop()
+			recorder = null
 			console.debug(PREFIX, 'recording stopped,', steps.length, 'steps')
 			sendResponse({ success: true, steps, startUrl: recordingStartUrl })
 			break
 		}
 
 		case 'get_steps': {
-			sendResponse({ success: true, steps: [...capturedSteps], startUrl: recordingStartUrl })
+			sendResponse({
+				success: true,
+				steps: recorder ? [...recorder.steps] : [],
+				startUrl: recordingStartUrl,
+			})
 			break
 		}
 
