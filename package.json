@@ -12,7 +12,8 @@
         "packages/page-agent",
         "packages/mcp",
         "packages/extension",
-        "packages/website"
+        "packages/website",
+        "packages/hermes"
     ],
     "description": "AI-powered UI agent for web applications",
     "author": "Simon<gaomeng1900>",
@@ -29,6 +30,7 @@
         "start": "npm run dev --workspace=@page-agent/website",
         "dev:ext": "npm run dev -w @page-agent/ext",
         "dev:demo": "npm run dev:demo --workspace=page-agent",
+        "dev:hermes": "npm run dev --workspace=@page-agent/hermes",
         "build": "node scripts/build.js",
         "build:libs": "node scripts/build-libs.js",
         "build:website": "npm run build:website --workspace=@page-agent/website",

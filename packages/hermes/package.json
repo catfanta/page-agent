@@ -1,0 +1,24 @@
+{
+    "name": "@page-agent/hermes",
+    "private": true,
+    "version": "1.8.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite --port 5174",
+        "build": "vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "ai": "^4.3.16",
+        "@ai-sdk/openai-compatible": "^0.2.14"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.2.2",
+        "@types/react": "^19.2.14",
+        "@types/react-dom": "^19.2.3",
+        "@vitejs/plugin-react-swc": "^4.3.0",
+        "react": "^19.2.5",
+        "react-dom": "^19.2.5",
+        "tailwindcss": "^4.2.2"
+    }
+}
