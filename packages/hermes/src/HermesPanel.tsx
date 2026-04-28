@@ -1,28 +1,19 @@
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { streamText } from 'ai'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
 
 import styles from '../../ui/src/panel/Panel.module.css'
-
-const hermes = createOpenAICompatible({
-	name: 'hermes-agent',
-	baseURL: '/api/hermes/v1',
-	apiKey: 'change-me-local-dev',
-})
 
 interface Message {
 	id: string
 	role: 'user' | 'assistant'
 	content: string
-	streaming?: boolean
+	pending?: boolean
 	error?: boolean
 }
 
 function messageItemClass(msg: Message): string {
 	if (msg.role === 'user') return styles.input
 	if (msg.error) return styles.error
-	if (msg.streaming) return styles.observation
+	if (msg.pending) return styles.observation
 	return styles.output
 }
 
@@ -33,11 +24,8 @@ export function HermesPanel() {
 	const [visible, setVisible] = useState(false)
 	const abortRef = useRef<AbortController | null>(null)
 	const historyRef = useRef<HTMLDivElement>(null)
-	// ref shadow lets stream() read latest messages without stale-closure issues
-	const messagesRef = useRef<Message[]>(messages)
-	messagesRef.current = messages
 
-	const isLoading = messages.some((m) => m.streaming)
+	const isLoading = messages.some((m) => m.pending)
 
 	useEffect(() => {
 		const t = setTimeout(() => setVisible(true), 50)
@@ -55,55 +43,53 @@ export function HermesPanel() {
 			const text = input.trim()
 			if (!text || isLoading) return
 
-			const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text }
+			// Build API payload before state update to avoid stale closure
+			const apiMessages = [
+				...messages.map((m) => ({ role: m.role, content: m.content })),
+				{ role: 'user' as const, content: text },
+			]
 			const assistantId = crypto.randomUUID()
 
-			// flushSync forces a render before the async stream starts, preventing React 18
-			// from batching this state update with a fast error's cleanup into a single frame
-			// eslint-disable-next-line @eslint-react/dom-no-flush-sync
-			flushSync(() => {
-				setMessages((prev) => [
-					...prev,
-					userMsg,
-					{ id: assistantId, role: 'assistant', content: '', streaming: true },
-				])
-				setInput('')
-				setIsExpanded(true)
-			})
+			setMessages((prev) => [
+				...prev,
+				{ id: crypto.randomUUID(), role: 'user', content: text },
+				{ id: assistantId, role: 'assistant', content: '', pending: true },
+			])
+			setInput('')
+			setIsExpanded(true)
 
-			abortRef.current = new AbortController()
+			const controller = new AbortController()
+			abortRef.current = controller
 
-			const stream = async () => {
+			const sendRequest = async () => {
 				try {
-					const result = streamText({
-						model: hermes('hermes-agent'),
-						// flushSync already committed userMsg into messagesRef — filter out only the placeholder
-						messages: messagesRef.current
-							.filter((m) => !m.streaming)
-							.map((m) => ({ role: m.role, content: m.content })),
-						abortSignal: abortRef.current!.signal,
+					const resp = await fetch('/api/hermes/v1/chat/completions', {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+							Authorization: 'Bearer change-me-local-dev',
+						},
+						body: JSON.stringify({ model: 'hermes-agent', messages: apiMessages }),
+						signal: controller.signal,
 					})
 
-					for await (const delta of result.textStream) {
-						setMessages((prev) =>
-							prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + delta } : m))
-						)
+					if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
+
+					const data = (await resp.json()) as {
+						choices?: { message?: { content?: string } }[]
 					}
+					const content = data.choices?.[0]?.message?.content ?? ''
 
 					setMessages((prev) =>
-						prev.map((m) => (m.id === assistantId ? { ...m, streaming: false } : m))
+						prev.map((m) => (m.id === assistantId ? { ...m, content, pending: false } : m))
 					)
 				} catch (err) {
-					const isAbort = (err as Error).name === 'AbortError'
+					const isAbort = err instanceof Error && err.name === 'AbortError'
+					const errorMsg = err instanceof Error ? err.message : String(err)
 					setMessages((prev) =>
 						prev.map((m) =>
 							m.id === assistantId
-								? {
-										...m,
-										content: isAbort ? m.content : err instanceof Error ? err.message : String(err),
-										streaming: false,
-										error: !isAbort,
-									}
+								? { ...m, content: isAbort ? m.content : errorMsg, pending: false, error: !isAbort }
 								: m
 						)
 					)
@@ -112,9 +98,9 @@ export function HermesPanel() {
 				}
 			}
 
-			void stream()
+			void sendRequest()
 		},
-		[input, isLoading]
+		[input, isLoading, messages]
 	)
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
@@ -143,7 +129,7 @@ export function HermesPanel() {
 							<div key={msg.id} className={`${styles.historyItem} ${messageItemClass(msg)}`}>
 								<div className={styles.historyContent}>
 									<span className={styles.statusIcon}>{msg.role === 'user' ? '👤' : '🤖'}</span>
-									<span>{msg.content || (msg.streaming ? '…' : '')}</span>
+									<span>{msg.content || (msg.pending ? '…' : '')}</span>
 								</div>
 							</div>
 						))
