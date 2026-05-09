@@ -286,6 +286,13 @@ export function HermesPanel({
 			recordingTabRef.current?.setRecordingState(true)
 			setIsRecording(true)
 		} else {
+			// Blur the active element so its change event fires before flush() is called.
+			// Some browsers defer blur/change until after click, leaving inFlight empty.
+			const active = document.activeElement
+			if (active instanceof HTMLElement && active !== document.body) {
+				active.blur()
+			}
+			await recorder.flush()
 			recorder.stop()
 			recorder.setAgentActing(false)
 			const sessionSteps = recorder.steps.slice(sessionStartIndexRef.current)

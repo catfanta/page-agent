@@ -38,6 +38,9 @@ export class Recorder {
 	/** Tracks last scroll position to calculate delta and direction */
 	private lastScrollY = window.scrollY
 
+	/** In-flight async event handler promises — needed to drain them before stop(). */
+	private readonly inFlight = new Set<Promise<void>>()
+
 	constructor(pageController: PageController, config: RecorderConfig = {}) {
 		this.pageController = pageController
 		this.config = {
@@ -92,22 +95,49 @@ export class Recorder {
 		this.agentActing = value
 	}
 
+	/**
+	 * Wait for all in-flight async handlers (handleClick / handleChange) to settle.
+	 * Call this before stop() + steps.slice() to avoid losing the last interaction
+	 * when the async fallback path is taken (element not yet in selectorMap).
+	 */
+	flush(): Promise<void> {
+		return Promise.all([...this.inFlight].map((p) => p.catch(() => {}))).then(() => {})
+	}
+
 	// ─── Private handlers ────────────────────────────────────────────────────
 
+	/**
+	 * Resolves an element to its recorded action payload.
+	 * Uses the current selectorMap snapshot first (no I/O); falls back to a full
+	 * updateTree() only when the element is not yet indexed. This keeps the common
+	 * path synchronous so pushStep() is called before any competing browser task.
+	 */
 	private async resolveElement(
 		el: HTMLElement
 	): Promise<{ index: number; elementText: string; elementHint: string } | undefined> {
-		await this.pageController.updateTree()
 		const index = this.pageController.findIndexByElement(el)
-		if (index === undefined) return undefined
+		if (index !== undefined) {
+			return {
+				index,
+				elementText: this.pageController.getElementTextSnapshot().get(index) ?? '',
+				elementHint: this.getElementHint(el),
+			}
+		}
+		await this.pageController.updateTree()
+		const retryIndex = this.pageController.findIndexByElement(el)
+		if (retryIndex === undefined) return undefined
 		return {
-			index,
-			elementText: this.pageController.getElementTextSnapshot().get(index) ?? '',
+			index: retryIndex,
+			elementText: this.pageController.getElementTextSnapshot().get(retryIndex) ?? '',
 			elementHint: this.getElementHint(el),
 		}
 	}
 
-	private handleClick = async (e: Event): Promise<void> => {
+	private handleClick = (e: Event): void => {
+		this.track(this.doHandleClick(e))
+	}
+
+	private doHandleClick = async (e: Event): Promise<void> => {
 		if (this.agentActing) return
 		if (!(e.target instanceof HTMLElement)) return
 
@@ -118,7 +148,11 @@ export class Recorder {
 		this.pushStep(action)
 	}
 
-	private handleChange = async (e: Event): Promise<void> => {
+	private handleChange = (e: Event): void => {
+		this.track(this.doHandleChange(e))
+	}
+
+	private doHandleChange = async (e: Event): Promise<void> => {
 		if (this.agentActing) return
 		if (!(e.target instanceof HTMLElement)) return
 
@@ -159,6 +193,11 @@ export class Recorder {
 		}
 
 		this.pushStep(action)
+	}
+
+	private track(p: Promise<void>): void {
+		this.inFlight.add(p)
+		void p.finally(() => this.inFlight.delete(p))
 	}
 
 	private scrollDebounceTimer: ReturnType<typeof setTimeout> | null = null
