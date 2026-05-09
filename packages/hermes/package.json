@@ -1,14 +1,43 @@
 {
     "name": "@page-agent/hermes",
-    "private": true,
+    "private": false,
     "version": "1.8.0",
     "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    },
+    "publishConfig": {
+        "main": "./dist/lib/hermes.js",
+        "types": "./dist/lib/hermes.d.ts",
+        "exports": {
+            ".": {
+                "types": "./dist/lib/hermes.d.ts",
+                "import": "./dist/lib/hermes.js",
+                "default": "./dist/lib/hermes.js"
+            }
+        }
+    },
+    "files": [
+        "dist/"
+    ],
+    "peerDependencies": {
+        "react": ">=18.0.0",
+        "react-dom": ">=18.0.0"
+    },
     "scripts": {
         "dev": "vite --port 5174",
         "build": "vite build",
         "preview": "vite preview",
         "build:demo": "vite build --config vite.iife.config.js",
-        "dev:demo": "concurrently \"vite build --config vite.iife.config.js --watch\" \"npx serve dist/iife -p 5176\" \"node cors-proxy.mjs\""
+        "dev:demo": "concurrently \"vite build --config vite.iife.config.js --watch\" \"npx serve dist/iife -p 5176\" \"node cors-proxy.mjs\"",
+        "build:lib": "vite build --config vite.lib.config.js",
+        "prepublishOnly": "node ../../scripts/pre-publish.js && npm run build:lib",
+        "postpublish": "node ../../scripts/post-publish.js"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.2.2",
