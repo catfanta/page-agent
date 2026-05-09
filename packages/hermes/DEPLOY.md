@@ -1,6 +1,6 @@
 # Hermes 部署指南
 
-本文档描述将 HermesPanel 嵌入到其他项目的两种方式。
+本文档描述将 HermesPanel 嵌入到其他项目的方式。
 
 ---
 
@@ -107,127 +107,78 @@ location /hermes/ {
 
 ---
 
-## 方式三：发布为 React 组件库
+## 方式三：作为 React 组件库引入
 
-适用场景：目标项目是 React 应用，希望将 HermesPanel 作为一个标准的 npm 包引入，像普通组件一样使用。
-
-### 当前限制
-
-`@page-agent/hermes` 目前是 `private: true` 的私有包，没有库导出入口。以下步骤描述如何将其改造为可发布的库。
+适用场景：目标项目是 React 应用，将 HermesPanel 作为标准 npm 包或本地包引入，像普通组件一样使用。
 
 ### 步骤
 
-**1. 新建库导出入口 `src/index.ts`**
+**1. 构建库产物**
 
-```typescript
-export { HermesPanel } from './HermesPanel'
-export type { } // 如有对外暴露的类型，在此补充
+```bash
+cd packages/hermes
+npm run build:lib
+# 输出：dist/lib/hermes.js 和 dist/lib/hermes.d.ts
 ```
 
-**2. 新建库构建配置 `vite.lib.config.js`**
+**2. 选择引入方式**
 
-```javascript
-// @ts-check
-import react from '@vitejs/plugin-react-swc'
-import { dirname, resolve } from 'path'
-import { fileURLToPath } from 'url'
-import dts from 'unplugin-dts/vite'
-import { defineConfig } from 'vite'
-import cssInjectedByJsPlugin from 'vite-plugin-css-injected-by-js'
+根据场景选择以下三种方式之一：
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+---
 
-export default defineConfig({
-    plugins: [
-        react(),
-        // 将 Panel.module.css 等样式打包进 JS，消费方无需单独引入 CSS
-        cssInjectedByJsPlugin({ relativeCSSInjection: true }),
-        // 生成 .d.ts 类型声明
-        dts({ bundleTypes: true }),
-    ],
-    publicDir: false,
-    build: {
-        lib: {
-            entry: resolve(__dirname, 'src/index.ts'),
-            fileName: 'hermes',
-            formats: ['es'],
-        },
-        outDir: resolve(__dirname, 'dist', 'esm'),
-        rollupOptions: {
-            // React 和 React DOM 不打包进去，由消费方提供
-            external: ['react', 'react-dom', 'react/jsx-runtime'],
-        },
-        minify: false,
-        sourcemap: true,
-    },
-    define: {
-        'process.env.NODE_ENV': '"production"',
-        'import.meta.env.VITE_HERMES_API_KEY': JSON.stringify(''),
-    },
-})
+**方案 A：发布到 npm 后安装**
+
+```bash
+# 在 packages/hermes 下执行
+# prepublishOnly 会自动将 package.json 中的 exports 从 src/ 切换到 dist/lib/，再执行构建
+npm publish
 ```
 
-**3. 更新 `package.json`**
+消费方安装：
+
+```bash
+npm install @page-agent/hermes
+```
+
+---
+
+**方案 B：本地包安装（不发布 npm）**
+
+适合在真实项目中测试本地修改，或在无法访问 npm 的环境中分发。
+
+```bash
+# 在 packages/hermes 下执行
+# npm pack 同样会触发 prepublishOnly（exports 切换 + 构建），生成可安装的 .tgz
+npm pack
+# 输出：page-agent-hermes-1.8.0.tgz（文件名随版本号变化）
+```
+
+在消费方项目中安装：
+
+```bash
+npm install /path/to/page-agent-hermes-1.8.0.tgz
+```
+
+---
+
+**方案 C：同 monorepo 内直接引用**
+
+消费方也在本 monorepo 中时，无需构建和发布，在消费方的 `package.json` 中声明依赖：
 
 ```json
 {
-    "name": "@page-agent/hermes",
-    "private": false,
-    "version": "1.8.0",
-    "type": "module",
-    "main": "./src/index.ts",
-    "types": "./src/index.ts",
-    "exports": {
-        ".": {
-            "types": "./src/index.ts",
-            "default": "./src/index.ts"
-        }
-    },
-    "publishConfig": {
-        "main": "./dist/esm/hermes.js",
-        "types": "./dist/esm/hermes.d.ts",
-        "exports": {
-            ".": {
-                "types": "./dist/esm/hermes.d.ts",
-                "import": "./dist/esm/hermes.js",
-                "default": "./dist/esm/hermes.js"
-            }
-        }
-    },
-    "peerDependencies": {
-        "react": ">=18.0.0",
-        "react-dom": ">=18.0.0"
-    },
-    "scripts": {
-        "build:lib": "vite build --config vite.lib.config.js",
-        "prepublishOnly": "node ../../scripts/pre-publish.js && npm run build:lib"
+    "dependencies": {
+        "@page-agent/hermes": "*"
     }
 }
 ```
 
-> `main` / `exports` 指向 `src/`（开发时 monorepo 直接引 TypeScript 源码）；`publishConfig` 在发布时被 `pre-publish.js` 提升为顶级字段，指向构建产物。
+monorepo 的 source-first 机制会直接解析到 `src/index.ts`，无需任何额外步骤。
 
-**4. 构建并发布**
+---
 
-```bash
-cd packages/hermes
-
-# 构建库产物（输出到 dist/esm/）
-npm run build:lib
-
-# 发布到 npm（pre-publish 脚本会自动执行）
-npm publish
-```
-
-**5. 消费方使用**
-
-安装：
-
-```bash
-npm install @page-agent/hermes react react-dom
-```
-
-在 React 应用中引入：
+**3. 在 React 应用中使用**
 
 ```tsx
 import { HermesPanel } from '@page-agent/hermes'
@@ -252,40 +203,21 @@ export function App() {
 | `baseURL` | `string?` | Hermes 后端地址，不传则以相对路径 `/api/hermes/v1/chat/completions` 发请求 |
 | `apiKey` | `string?` | Bearer token |
 | `onClose` | `() => void?` | 用户点击关闭按钮时的回调 |
-
-**6. 同 monorepo 内直接引用（无需发布）**
-
-如果消费方也在这个 monorepo 里，无需发布，直接在 `package.json` 中声明依赖即可：
-
-```json
-{
-    "dependencies": {
-        "@page-agent/hermes": "*"
-    }
-}
-```
-
-然后正常 import：
-
-```tsx
-import { HermesPanel } from '@page-agent/hermes'
-```
-
-monorepo 的 source-first 机制会自动解析到 `src/index.ts`。
+| `recording` | `{ recorder, replayer }?` | 外部注入的录制依赖；不传时组件自动创建 PageController + Recorder + Replayer |
 
 ### 样式说明
 
-库构建启用了 `cssInjectedByJsPlugin`，所有样式（包括 `Panel.module.css`）会被打包进 `hermes.js`。消费方**不需要**单独引入任何 CSS 文件，`import { HermesPanel } from '@page-agent/hermes'` 即可获得完整样式。
+库构建启用了 `cssInjectedByJsPlugin`，所有样式会被打包进 `hermes.js`。消费方**不需要**单独引入任何 CSS 文件。
 
 ---
 
 ## 方式对比
 
-| | 方式一（Script 标签） | 方式三（组件库） |
-|---|---|---|
-| 目标技术栈 | 任意 | React |
-| 集成难度 | 低（一行 script） | 中（npm install + import） |
-| 类型支持 | 无 | 完整 TypeScript 类型 |
-| 样式隔离 | 注入全局 DOM | 同上（CSS-in-JS） |
-| 版本管理 | 通过 URL 版本号 | npm 语义版本 |
-| 适合场景 | 已有项目快速接入 | 新项目深度集成 |
+| | 方式一（Script 标签） | 方式三 A（npm 发布） | 方式三 B（本地包） | 方式三 C（monorepo） |
+|---|---|---|---|---|
+| 目标技术栈 | 任意 | React | React | React（同 monorepo） |
+| 集成难度 | 低（一行 script） | 低（npm install） | 中（pack + install） | 低（声明依赖即可） |
+| 类型支持 | 无 | 完整 TypeScript 类型 | 完整 TypeScript 类型 | 完整 TypeScript 类型 |
+| 样式隔离 | 注入全局 DOM | CSS-in-JS（打包进 JS） | CSS-in-JS（打包进 JS） | CSS-in-JS（打包进 JS） |
+| 版本管理 | 通过 URL 版本号 | npm 语义版本 | 手动分发 .tgz | 源码直接引用 |
+| 适合场景 | 任意技术栈快速接入 | 正式发布给外部消费方 | 本地验证 / 无 npm 环境 | monorepo 内部集成 |

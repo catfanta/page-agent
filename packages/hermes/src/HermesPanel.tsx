@@ -1,8 +1,9 @@
 import { PageController } from '@page-agent/page-controller'
 import { Recorder, Replayer, saveRecording } from '@page-agent/recorder'
-import type { RecordingTabDeps } from '@page-agent/ui'
-import { I18n, RecordingTab } from '@page-agent/ui'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+
+import { RecordingTab } from './RecordingTab'
+import type { RecordingTabDeps } from './RecordingTab'
 
 import styles from '../../ui/src/panel/Panel.module.css'
 
@@ -185,13 +186,12 @@ export function HermesPanel({
 		const deps: RecordingTabDeps = {
 			recorder: effectiveDeps.recorder,
 			replayer: effectiveDeps.replayer,
-			i18n: new I18n('zh-CN'),
 		}
 		const tab = new RecordingTab(deps)
 		recListRef.current.appendChild(tab.element)
 		recordingTabRef.current = tab
 		return () => {
-			tab.stopLivePreview()
+			tab.destroy()
 			tab.element.remove()
 			recordingTabRef.current = null
 		}
@@ -297,11 +297,11 @@ export function HermesPanel({
 					steps: sessionSteps,
 					startUrl: window.location.href,
 				})
+				await recordingTabRef.current?.renderHistory()
+				// Auto-expand the list panel so user sees the saved recording
+				setIsExpanded(false)
+				setIsRecListExpanded(true)
 			}
-			await recordingTabRef.current?.renderHistory()
-			// Auto-expand the list panel so user sees the saved recording
-			setIsExpanded(false)
-			setIsRecListExpanded(true)
 		}
 	}, [isRecording, effectiveDeps])
 
