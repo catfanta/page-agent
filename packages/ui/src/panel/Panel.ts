@@ -1,5 +1,10 @@
+import type { Recorder, Replayer } from '@page-agent/recorder'
+import { saveRecording } from '@page-agent/recorder'
+
 import { I18n, type SupportedLanguage } from '../i18n'
 import { truncate } from '../utils'
+import type { RecordingTabDeps } from './RecordingTab'
+import { RecordingTab } from './RecordingTab'
 import { createCard, createReflectionLines } from './cards'
 import type { AgentActivity, PanelAgentAdapter } from './types'
 
@@ -15,6 +20,14 @@ export interface PanelConfig {
 	 * @default true
 	 */
 	promptForNextTask?: boolean
+	/**
+	 * Optional recording/replay dependencies.
+	 * When provided, a recording button and list panel are added to the header.
+	 */
+	recording?: {
+		recorder: Recorder
+		replayer: Replayer
+	}
 }
 
 /**
@@ -46,6 +59,13 @@ export class Panel {
 	#headerUpdateTimer: ReturnType<typeof setInterval> | null = null
 	#pendingHeaderText: string | null = null
 	#isAnimating = false
+	#recordingTab: RecordingTab | null = null
+	#recordingButton: HTMLButtonElement | null = null
+	#recListButton: HTMLButtonElement | null = null
+	#recListWrapper: HTMLElement | null = null
+	#isRecListExpanded = false
+	#isRecording = false
+	#sessionStartIndex = 0
 
 	// Event handlers (bound for removal)
 	#onStatusChange = () => this.#handleStatusChange()
@@ -77,6 +97,11 @@ export class Panel {
 		this.#historySection = this.#wrapper.querySelector(`.${styles.historySection}`)!
 		this.#expandButton = this.#wrapper.querySelector(`.${styles.expandButton}`)!
 		this.#actionButton = this.#wrapper.querySelector(`.${styles.stopButton}`)!
+		this.#recordingButton =
+			this.#wrapper.querySelector<HTMLButtonElement>(`.${styles.recordingButton}`) ?? null
+		this.#recListButton =
+			this.#wrapper.querySelector<HTMLButtonElement>(`.${styles.recListButton}`) ?? null
+		this.#recListWrapper = this.#wrapper.querySelector(`.${styles.recListWrapper}`) ?? null
 		this.#inputSection = this.#wrapper.querySelector(`.${styles.inputSectionWrapper}`)!
 		this.#taskInput = this.#wrapper.querySelector(`.${styles.taskInput}`)!
 
@@ -90,6 +115,10 @@ export class Panel {
 		this.#startHeaderUpdateLoop()
 
 		this.#showInputArea()
+
+		if (config.recording) {
+			this.#initRecordingTab(config.recording)
+		}
 
 		this.hide() // Start hidden
 	}
@@ -394,6 +423,12 @@ export class Panel {
 					<div class="${styles.statusText}">${this.#i18n.t('ui.panel.ready')}</div>
 				</div>
 				<div class="${styles.controls}">
+					<button class="${styles.controlButton} ${styles.recordingButton}" title="${this.#i18n.t('ui.recording.startRecording')}" style="display:none">
+						●
+					</button>
+					<button class="${styles.controlButton} ${styles.recListButton}" title="${this.#i18n.t('ui.recording.tab')}" style="display:none">
+						≡
+					</button>
 					<button class="${styles.controlButton} ${styles.expandButton}" title="${this.#i18n.t('ui.panel.expand')}">
 						▼
 					</button>
@@ -402,6 +437,7 @@ export class Panel {
 					</button>
 				</div>
 			</div>
+			<div class="${styles.recListWrapper}"></div>
 			<div class="${styles.inputSectionWrapper} ${styles.hidden}">
 				<div class="${styles.inputSection}">
 					<input 
@@ -467,12 +503,86 @@ export class Panel {
 		this.#isExpanded = true
 		this.wrapper.classList.add(styles.expanded)
 		this.#expandButton.textContent = '▲'
+		this.#collapseRecList()
 	}
 
 	#collapse(): void {
 		this.#isExpanded = false
 		this.wrapper.classList.remove(styles.expanded)
 		this.#expandButton.textContent = '▼'
+	}
+
+	#initRecordingTab(cfg: NonNullable<PanelConfig['recording']>): void {
+		if (this.#recordingButton) {
+			this.#recordingButton.style.display = 'flex'
+			this.#recordingButton.addEventListener('click', async (e) => {
+				e.stopPropagation()
+				const { recorder } = cfg
+				if (!this.#isRecording) {
+					this.#isRecording = true
+					this.#sessionStartIndex = recorder.steps.length
+					recorder.start()
+					this.#recordingTab?.setRecordingState(true)
+					this.#recordingButton!.textContent = '■'
+					this.#recordingButton!.title = this.#i18n.t('ui.recording.stopRecording')
+					this.#recordingButton!.classList.add(styles.recordingActive)
+				} else {
+					this.#isRecording = false
+					recorder.stop()
+					const sessionSteps = recorder.steps.slice(this.#sessionStartIndex)
+					if (sessionSteps.length > 0) {
+						await saveRecording({
+							name: `Recording ${new Date().toLocaleString()}`,
+							steps: sessionSteps,
+							startUrl: window.location.href,
+						})
+					}
+					this.#recordingTab?.setRecordingState(false)
+					this.#recordingButton!.textContent = '●'
+					this.#recordingButton!.title = this.#i18n.t('ui.recording.startRecording')
+					this.#recordingButton!.classList.remove(styles.recordingActive)
+					await this.#recordingTab?.renderHistory()
+				}
+			})
+		}
+
+		const deps: RecordingTabDeps = {
+			recorder: cfg.recorder,
+			replayer: cfg.replayer,
+			i18n: this.#i18n,
+		}
+		this.#recordingTab = new RecordingTab(deps)
+		this.#recListWrapper?.appendChild(this.#recordingTab.element)
+
+		if (this.#recListButton) {
+			this.#recListButton.style.display = 'flex'
+			this.#recListButton.addEventListener('click', (e) => {
+				e.stopPropagation()
+				this.#toggleRecList()
+			})
+		}
+	}
+
+	#toggleRecList(): void {
+		if (this.#isRecListExpanded) {
+			this.#collapseRecList()
+		} else {
+			this.#expandRecList()
+		}
+	}
+
+	#expandRecList(): void {
+		this.#isRecListExpanded = true
+		this.#collapse()
+		this.wrapper.classList.add(styles.recListShown)
+		this.#recListButton?.classList.add(styles.recListBtnActive)
+		void this.#recordingTab?.refresh()
+	}
+
+	#collapseRecList(): void {
+		this.#isRecListExpanded = false
+		this.wrapper.classList.remove(styles.recListShown)
+		this.#recListButton?.classList.remove(styles.recListBtnActive)
 	}
 
 	/**

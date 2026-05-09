@@ -1,3 +1,7 @@
+import { PageController } from '@page-agent/page-controller'
+import { Recorder, Replayer, saveRecording } from '@page-agent/recorder'
+import type { RecordingTabDeps } from '@page-agent/ui'
+import { I18n, RecordingTab } from '@page-agent/ui'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import styles from '../../ui/src/panel/Panel.module.css'
@@ -10,6 +14,11 @@ interface Message {
 	error?: boolean
 }
 
+interface RecordingDeps {
+	recorder: Recorder
+	replayer: Replayer
+}
+
 interface HermesPanelProps {
 	/** Hermes server base URL, e.g. 'http://localhost:8642'. Falls back to vite proxy when omitted. */
 	baseURL?: string
@@ -17,6 +26,11 @@ interface HermesPanelProps {
 	apiKey?: string
 	/** Called when the user closes the panel. */
 	onClose?: () => void
+	/**
+	 * External recording deps. When omitted, HermesPanel creates its own
+	 * PageController + Recorder + Replayer automatically.
+	 */
+	recording?: RecordingDeps
 }
 
 function messageItemClass(msg: Message): string {
@@ -108,15 +122,31 @@ const STOP_BUTTON_STYLE: React.CSSProperties = {
 	color: 'rgb(255,100,100)',
 }
 
-export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPanelProps = {}) {
+export function HermesPanel({
+	baseURL,
+	apiKey: propApiKey,
+	onClose,
+	recording,
+}: HermesPanelProps = {}) {
 	const [messages, setMessages] = useState<Message[]>([])
 	const [input, setInput] = useState('')
 	const [isExpanded, setIsExpanded] = useState(false)
 	const [visible, setVisible] = useState(false)
+	const [isRecording, setIsRecording] = useState(false)
+	const [isRecListExpanded, setIsRecListExpanded] = useState(false)
+	// Internal deps created when recording prop is not provided
+	const [internalDeps, setInternalDeps] = useState<RecordingDeps | null>(null)
+
 	const abortRef = useRef<AbortController | null>(null)
 	const historyRef = useRef<HTMLDivElement>(null)
+	const recListRef = useRef<HTMLDivElement>(null)
+	const recordingTabRef = useRef<RecordingTab | null>(null)
+	const sessionStartIndexRef = useRef(0)
 	// useState lazy initializer runs getSessionKey exactly once
 	const [sessionKey] = useState(getSessionKey)
+
+	// Effective deps: external prop takes priority, otherwise use internal
+	const effectiveDeps = recording ?? internalDeps
 
 	const isLoading = messages.some((m) => m.pending)
 
@@ -136,6 +166,38 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 			abortRef.current?.abort()
 		}
 	}, [])
+
+	// Create internal PageController + Recorder + Replayer when no external dep is provided
+	useEffect(() => {
+		if (recording) return
+		const pc = new PageController()
+		const rec = new Recorder(pc)
+		const rep = new Replayer(pc)
+		setInternalDeps({ recorder: rec, replayer: rep })
+		return () => {
+			rec.stop()
+		}
+	}, [recording])
+
+	// Mount RecordingTab (vanilla JS) into the recListWrapper div
+	useEffect(() => {
+		if (!effectiveDeps || !recListRef.current) return
+		const deps: RecordingTabDeps = {
+			recorder: effectiveDeps.recorder,
+			replayer: effectiveDeps.replayer,
+			i18n: new I18n('zh-CN'),
+		}
+		const tab = new RecordingTab(deps)
+		recListRef.current.appendChild(tab.element)
+		recordingTabRef.current = tab
+		return () => {
+			tab.stopLivePreview()
+			tab.element.remove()
+			recordingTabRef.current = null
+		}
+		// effectiveDeps identity is stable: recording prop is external reference,
+		// internalDeps is set once in the effect above
+	}, [effectiveDeps])
 
 	const submit = useCallback(
 		(e: React.SyntheticEvent) => {
@@ -214,9 +276,50 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
 
+	const toggleRecording = useCallback(async () => {
+		if (!effectiveDeps) return
+		const { recorder } = effectiveDeps
+		if (!isRecording) {
+			sessionStartIndexRef.current = recorder.steps.length
+			recorder.start()
+			recordingTabRef.current?.setRecordingState(true)
+			setIsRecording(true)
+		} else {
+			recorder.stop()
+			const sessionSteps = recorder.steps.slice(sessionStartIndexRef.current)
+			recordingTabRef.current?.setRecordingState(false)
+			setIsRecording(false)
+			if (sessionSteps.length > 0) {
+				await saveRecording({
+					name: `Recording ${new Date().toLocaleString()}`,
+					steps: sessionSteps,
+					startUrl: window.location.href,
+				})
+			}
+			await recordingTabRef.current?.renderHistory()
+			// Auto-expand the list panel so user sees the saved recording
+			setIsExpanded(false)
+			setIsRecListExpanded(true)
+		}
+	}, [isRecording, effectiveDeps])
+
+	const toggleRecList = useCallback(() => {
+		setIsRecListExpanded((v) => {
+			if (!v) {
+				setIsExpanded(false)
+				void recordingTabRef.current?.refresh()
+			}
+			return !v
+		})
+	}, [])
+
 	return (
 		<div
-			className={`${styles.wrapper} ${isExpanded ? styles.expanded : ''}`}
+			className={[
+				styles.wrapper,
+				isExpanded ? styles.expanded : '',
+				isRecListExpanded ? styles.recListShown : '',
+			].join(' ')}
 			style={{
 				opacity: visible ? 1 : 0,
 				transform: visible ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(20px)',
@@ -254,12 +357,47 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 					<div className={styles.statusText}>{isLoading ? '正在思考...' : 'Hermes Agent'}</div>
 				</div>
 				<div className={styles.controls}>
+					{effectiveDeps && (
+						<button
+							className={[
+								styles.controlButton,
+								styles.recordingButton,
+								isRecording ? styles.recordingActive : '',
+							].join(' ')}
+							title={isRecording ? '停止录制' : '开始录制'}
+							onClick={(e) => {
+								e.stopPropagation()
+								void toggleRecording()
+							}}
+						>
+							{isRecording ? '■' : '●'}
+						</button>
+					)}
+					{effectiveDeps && (
+						<button
+							className={[
+								styles.controlButton,
+								styles.recListButton,
+								isRecListExpanded ? styles.recListBtnActive : '',
+							].join(' ')}
+							title="录制列表"
+							onClick={(e) => {
+								e.stopPropagation()
+								toggleRecList()
+							}}
+						>
+							≡
+						</button>
+					)}
 					<button
 						className={`${styles.controlButton} ${styles.expandButton}`}
 						title={isExpanded ? '收起' : '展开历史'}
 						onClick={(e) => {
 							e.stopPropagation()
-							setIsExpanded((v) => !v)
+							setIsExpanded((v) => {
+								if (!v) setIsRecListExpanded(false)
+								return !v
+							})
 						}}
 					>
 						{isExpanded ? '▲' : '▼'}
@@ -280,6 +418,8 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 					</button>
 				</div>
 			</div>
+
+			<div className={styles.recListWrapper} ref={recListRef} />
 
 			<div className={styles.inputSectionWrapper}>
 				<form className={styles.inputSection} onSubmit={submit}>
