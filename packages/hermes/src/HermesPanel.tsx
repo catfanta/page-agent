@@ -202,6 +202,7 @@ export function HermesPanel({
 	const submit = useCallback(
 		(e: React.SyntheticEvent) => {
 			e.preventDefault()
+			effectiveDeps?.recorder.setAgentActing(false)
 			const text = input.trim()
 			if (!text || isLoading) return
 
@@ -271,7 +272,7 @@ export function HermesPanel({
 
 			void sendRequest()
 		},
-		[input, isLoading, messages, sessionKey, baseURL, propApiKey]
+		[input, isLoading, messages, sessionKey, baseURL, propApiKey, effectiveDeps]
 	)
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
@@ -286,6 +287,7 @@ export function HermesPanel({
 			setIsRecording(true)
 		} else {
 			recorder.stop()
+			recorder.setAgentActing(false)
 			const sessionSteps = recorder.steps.slice(sessionStartIndexRef.current)
 			recordingTabRef.current?.setRecordingState(false)
 			setIsRecording(false)
@@ -365,6 +367,9 @@ export function HermesPanel({
 								isRecording ? styles.recordingActive : '',
 							].join(' ')}
 							title={isRecording ? '停止录制' : '开始录制'}
+							onPointerDown={() => {
+								if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
+							}}
 							onClick={(e) => {
 								e.stopPropagation()
 								void toggleRecording()
@@ -381,9 +386,13 @@ export function HermesPanel({
 								isRecListExpanded ? styles.recListBtnActive : '',
 							].join(' ')}
 							title="录制列表"
+							onPointerDown={() => {
+								if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
+							}}
 							onClick={(e) => {
 								e.stopPropagation()
 								toggleRecList()
+								effectiveDeps?.recorder.setAgentActing(false)
 							}}
 						>
 							≡
@@ -392,12 +401,16 @@ export function HermesPanel({
 					<button
 						className={`${styles.controlButton} ${styles.expandButton}`}
 						title={isExpanded ? '收起' : '展开历史'}
+						onPointerDown={() => {
+							if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
+						}}
 						onClick={(e) => {
 							e.stopPropagation()
 							setIsExpanded((v) => {
 								if (!v) setIsRecListExpanded(false)
 								return !v
 							})
+							effectiveDeps?.recorder.setAgentActing(false)
 						}}
 					>
 						{isExpanded ? '▲' : '▼'}
@@ -405,6 +418,9 @@ export function HermesPanel({
 					<button
 						className={`${styles.controlButton} ${styles.stopButton}`}
 						title={isLoading ? '停止' : '关闭'}
+						onPointerDown={() => {
+							if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
+						}}
 						onClick={(e) => {
 							e.stopPropagation()
 							if (isLoading) stop()
@@ -412,6 +428,7 @@ export function HermesPanel({
 								setVisible(false)
 								onClose?.()
 							}
+							effectiveDeps?.recorder.setAgentActing(false)
 						}}
 					>
 						{isLoading ? '■' : 'X'}
@@ -434,16 +451,27 @@ export function HermesPanel({
 					{isLoading ? (
 						<button
 							type="button"
+							onPointerDown={() => {
+								if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
+							}}
 							onClick={(e) => {
 								e.stopPropagation()
 								stop()
+								effectiveDeps?.recorder.setAgentActing(false)
 							}}
 							style={STOP_BUTTON_STYLE}
 						>
 							停止
 						</button>
 					) : (
-						<button type="submit" disabled={!input.trim()} style={BASE_BUTTON_STYLE}>
+						<button
+							type="submit"
+							disabled={!input.trim()}
+							onPointerDown={() => {
+								if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
+							}}
+							style={BASE_BUTTON_STYLE}
+						>
 							发送
 						</button>
 					)}

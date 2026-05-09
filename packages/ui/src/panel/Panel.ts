@@ -465,15 +465,23 @@ export class Panel {
 		})
 
 		// Expand button
+		this.#expandButton.addEventListener('pointerdown', () => {
+			if (this.#isRecording) this.#config.recording?.recorder.setAgentActing(true)
+		})
 		this.#expandButton.addEventListener('click', (e) => {
 			e.stopPropagation()
 			this.#toggle()
+			this.#config.recording?.recorder.setAgentActing(false)
 		})
 
 		// Action button (stop / close)
+		this.#actionButton.addEventListener('pointerdown', () => {
+			if (this.#isRecording) this.#config.recording?.recorder.setAgentActing(true)
+		})
 		this.#actionButton.addEventListener('click', (e) => {
 			e.stopPropagation()
 			this.#handleActionButton()
+			this.#config.recording?.recorder.setAgentActing(false)
 		})
 
 		// Submit on Enter key in input field
@@ -515,6 +523,10 @@ export class Panel {
 	#initRecordingTab(cfg: NonNullable<PanelConfig['recording']>): void {
 		if (this.#recordingButton) {
 			this.#recordingButton.style.display = 'flex'
+			// Set agentActing before click fires so the Recorder's capture-phase handler skips this click
+			this.#recordingButton.addEventListener('pointerdown', () => {
+				if (this.#isRecording) cfg.recorder.setAgentActing(true)
+			})
 			this.#recordingButton.addEventListener('click', async (e) => {
 				e.stopPropagation()
 				const { recorder } = cfg
@@ -529,6 +541,7 @@ export class Panel {
 				} else {
 					this.#isRecording = false
 					recorder.stop()
+					recorder.setAgentActing(false)
 					const sessionSteps = recorder.steps.slice(this.#sessionStartIndex)
 					if (sessionSteps.length > 0) {
 						await saveRecording({
@@ -556,9 +569,13 @@ export class Panel {
 
 		if (this.#recListButton) {
 			this.#recListButton.style.display = 'flex'
+			this.#recListButton.addEventListener('pointerdown', () => {
+				if (this.#isRecording) cfg.recorder.setAgentActing(true)
+			})
 			this.#recListButton.addEventListener('click', (e) => {
 				e.stopPropagation()
 				this.#toggleRecList()
+				cfg.recorder.setAgentActing(false)
 			})
 		}
 	}
