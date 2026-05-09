@@ -32,15 +32,9 @@ if (window.__hermes) {
 
 // currentScript is only available synchronously during script execution
 const currentScript = document.currentScript as HTMLScriptElement | null
-
-let baseURL = ''
-let apiKey = ''
-
-if (currentScript) {
-	const url = new URL(currentScript.src)
-	baseURL = url.searchParams.get('baseURL') || ''
-	apiKey = url.searchParams.get('apiKey') || ''
-}
+const scriptParams = currentScript ? new URL(currentScript.src).searchParams : null
+const baseURL = scriptParams?.get('baseURL') ?? ''
+const apiKey = scriptParams?.get('apiKey') ?? ''
 
 // Remove any leftover container from a previous broken injection
 document.getElementById('__hermes-root')?.remove()

@@ -41,15 +41,10 @@ const server = http.createServer((req, res) => {
 	}
 
 	console.log(`[proxy] ${req.method} ${req.url}`)
-	console.log('[proxy] forwarding headers:', JSON.stringify(options.headers, null, 2))
 
 	const proxy = http.request(options, (upstream) => {
-		console.log(`[proxy] upstream status: ${upstream.statusCode}`)
-		console.log('[proxy] upstream headers:', JSON.stringify(upstream.headers, null, 2))
-		// Merge CORS headers with upstream response headers
 		const headers = { ...upstream.headers, ...CORS_HEADERS }
 		res.writeHead(upstream.statusCode ?? 200, headers)
-		// Pipe handles SSE streams correctly (no buffering)
 		upstream.pipe(res)
 	})
 

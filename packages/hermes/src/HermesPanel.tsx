@@ -26,7 +26,7 @@ function messageItemClass(msg: Message): string {
 	return styles.output
 }
 
-// Stable per-browser session key scoping Hermes long-term memory (X-Hermes-Session-Key)
+// localStorage may throw in sandboxed iframes — fall back to an in-memory UUID
 function getSessionKey(): string {
 	try {
 		const stored = localStorage.getItem('hermes-session-key')
@@ -36,6 +36,56 @@ function getSessionKey(): string {
 		return key
 	} catch {
 		return crypto.randomUUID()
+	}
+}
+
+async function readSSEStream(
+	resp: Response,
+	assistantId: string,
+	setMessages: React.Dispatch<React.SetStateAction<Message[]>>
+) {
+	const reader = resp.body!.getReader()
+	const decoder = new TextDecoder()
+	let buffer = ''
+	let hasContent = false
+
+	try {
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) break
+			buffer += decoder.decode(value, { stream: true })
+			const lines = buffer.split('\n')
+			buffer = lines.pop() ?? ''
+
+			for (const line of lines) {
+				if (!line.startsWith('data: ')) continue
+				const payload = line.slice(6).trim()
+				if (payload === '[DONE]') continue
+				try {
+					const chunk = JSON.parse(payload) as {
+						choices?: { delta?: { content?: string } }[]
+					}
+					const delta = chunk.choices?.[0]?.delta?.content ?? ''
+					if (!delta) continue
+					hasContent = true
+					setMessages((prev) =>
+						prev.map((m) =>
+							m.id === assistantId ? { ...m, content: m.content + delta, pending: false } : m
+						)
+					)
+				} catch {
+					// ignore malformed SSE chunks
+				}
+			}
+		}
+	} finally {
+		reader.releaseLock()
+	}
+
+	if (!hasContent) {
+		setMessages((prev) =>
+			prev.map((m) => (m.id === assistantId && m.pending ? { ...m, pending: false } : m))
+		)
 	}
 }
 
@@ -52,10 +102,6 @@ const BASE_BUTTON_STYLE: React.CSSProperties = {
 	color: 'white',
 }
 
-const SEND_BUTTON_STYLE: React.CSSProperties = {
-	...BASE_BUTTON_STYLE,
-}
-
 const STOP_BUTTON_STYLE: React.CSSProperties = {
 	...BASE_BUTTON_STYLE,
 	background: 'rgba(239,68,68,0.25)',
@@ -69,7 +115,8 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 	const [visible, setVisible] = useState(false)
 	const abortRef = useRef<AbortController | null>(null)
 	const historyRef = useRef<HTMLDivElement>(null)
-	const sessionKey = useRef(getSessionKey()).current
+	// useState lazy initializer runs getSessionKey exactly once
+	const [sessionKey] = useState(getSessionKey)
 
 	const isLoading = messages.some((m) => m.pending)
 
@@ -83,13 +130,19 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 		if (el) el.scrollTop = el.scrollHeight
 	}, [messages])
 
+	// Abort in-flight request when panel unmounts
+	useEffect(() => {
+		return () => {
+			abortRef.current?.abort()
+		}
+	}, [])
+
 	const submit = useCallback(
 		(e: React.SyntheticEvent) => {
 			e.preventDefault()
 			const text = input.trim()
 			if (!text || isLoading) return
 
-			// Build API payload before state update to avoid stale closure
 			const apiMessages = [
 				...messages.map((m) => ({ role: m.role, content: m.content })),
 				{ role: 'user' as const, content: text },
@@ -129,7 +182,7 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 					if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
 
 					if (resp.headers.get('content-type')?.includes('text/event-stream')) {
-						await readSSEStream(resp, assistantId)
+						await readSSEStream(resp, assistantId, setMessages)
 					} else {
 						const data = (await resp.json()) as {
 							choices?: { message?: { content?: string } }[]
@@ -156,54 +209,8 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 
 			void sendRequest()
 		},
-		[input, isLoading, messages, sessionKey]
+		[input, isLoading, messages, sessionKey, baseURL, propApiKey]
 	)
-
-	const readSSEStream = async (resp: Response, assistantId: string) => {
-		const reader = resp.body!.getReader()
-		const decoder = new TextDecoder()
-		let buffer = ''
-		let hasContent = false
-
-		try {
-			while (true) {
-				const { done, value } = await reader.read()
-				if (done) break
-				buffer += decoder.decode(value, { stream: true })
-				const lines = buffer.split('\n')
-				buffer = lines.pop() ?? ''
-
-				for (const line of lines) {
-					if (!line.startsWith('data: ')) continue
-					const payload = line.slice(6).trim()
-					if (payload === '[DONE]') continue
-					try {
-						const chunk = JSON.parse(payload) as {
-							choices?: { delta?: { content?: string } }[]
-						}
-						const delta = chunk.choices?.[0]?.delta?.content ?? ''
-						if (!delta) continue
-						hasContent = true
-						setMessages((prev) =>
-							prev.map((m) =>
-								m.id === assistantId ? { ...m, content: m.content + delta, pending: false } : m
-							)
-						)
-					} catch {
-						// ignore malformed SSE chunks
-					}
-				}
-			}
-		} finally {
-			reader.releaseLock()
-		}
-
-		if (!hasContent) {
-			setMessages((prev) =>
-				prev.map((m) => (m.id === assistantId && m.pending ? { ...m, pending: false } : m))
-			)
-		}
-	}
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
 
@@ -296,7 +303,7 @@ export function HermesPanel({ baseURL, apiKey: propApiKey, onClose }: HermesPane
 							停止
 						</button>
 					) : (
-						<button type="submit" disabled={!input.trim()} style={SEND_BUTTON_STYLE}>
+						<button type="submit" disabled={!input.trim()} style={BASE_BUTTON_STYLE}>
 							发送
 						</button>
 					)}
