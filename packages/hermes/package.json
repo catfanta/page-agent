@@ -6,7 +6,9 @@
     "scripts": {
         "dev": "vite --port 5174",
         "build": "vite build",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "build:demo": "vite build --config vite.iife.config.js",
+        "dev:demo": "concurrently \"vite build --config vite.iife.config.js --watch\" \"npx serve dist/iife -p 5176\" \"node cors-proxy.mjs\""
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.2.2",
