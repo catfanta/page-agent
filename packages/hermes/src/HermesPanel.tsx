@@ -15,6 +15,30 @@ interface Message {
 	error?: boolean
 }
 
+type ServerHealth = 'ok' | 'error' | null
+
+interface DetailedHealth {
+	status?: string
+	active_sessions?: number
+	running_agents?: number
+	[key: string]: unknown
+}
+
+interface HermesCapabilities {
+	object: string
+	platform: string
+	model: string
+	auth: { type: string; required: boolean }
+	features: {
+		chat_completions?: boolean
+		responses_api?: boolean
+		run_submission?: boolean
+		run_status?: boolean
+		run_events_sse?: boolean
+		run_stop?: boolean
+	}
+}
+
 interface RecordingDeps {
 	recorder: Recorder
 	replayer: Replayer
@@ -135,6 +159,9 @@ export function HermesPanel({
 	const [visible, setVisible] = useState(false)
 	const [isRecording, setIsRecording] = useState(false)
 	const [isRecListExpanded, setIsRecListExpanded] = useState(false)
+	const [capabilities, setCapabilities] = useState<HermesCapabilities | null>(null)
+	const [serverHealth, setServerHealth] = useState<ServerHealth>(null)
+	const [detailedHealth, setDetailedHealth] = useState<DetailedHealth | null>(null)
 	// Internal deps created when recording prop is not provided
 	const [internalDeps, setInternalDeps] = useState<RecordingDeps | null>(null)
 
@@ -155,6 +182,50 @@ export function HermesPanel({
 		const t = setTimeout(() => setVisible(true), 50)
 		return () => clearTimeout(t)
 	}, [])
+
+	useEffect(() => {
+		// When no explicit baseURL, route through the Vite proxy prefix so /health
+		// hits the Hermes server rather than the dev server itself.
+		const healthBase = baseURL ?? '/api/hermes'
+		const effectiveApiKey = propApiKey || import.meta.env.VITE_HERMES_API_KEY
+		const headers: Record<string, string> = {}
+		if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
+
+		const check = async () => {
+			try {
+				const r = await fetch(`${healthBase}/health`, { headers })
+				if (!r.ok) throw new Error(`HTTP ${r.status}`)
+				setServerHealth('ok')
+				fetch(`${healthBase}/health/detailed`, { headers })
+					.then((dr) => (dr.ok ? dr.json() : null))
+					.then((d: DetailedHealth | null) => setDetailedHealth(d))
+					.catch(() => {})
+			} catch {
+				setServerHealth('error')
+				setDetailedHealth(null)
+			}
+		}
+
+		void check()
+		const timer = setInterval(() => void check(), 30_000)
+		return () => clearInterval(timer)
+	}, [baseURL, propApiKey])
+
+	useEffect(() => {
+		const endpoint = baseURL ? `${baseURL}/v1/capabilities` : '/api/hermes/v1/capabilities'
+		const effectiveApiKey = propApiKey || import.meta.env.VITE_HERMES_API_KEY
+		const headers: Record<string, string> = {}
+		if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
+
+		fetch(endpoint, { headers })
+			.then((r) => (r.ok ? r.json() : null))
+			.then((data: HermesCapabilities | null) => {
+				if (data?.object === 'hermes.api_server.capabilities') setCapabilities(data)
+			})
+			.catch(() => {
+				// capabilities endpoint unavailable — degrade gracefully
+			})
+	}, [baseURL, propApiKey])
 
 	useEffect(() => {
 		const el = historyRef.current
@@ -238,7 +309,11 @@ export function HermesPanel({
 					const resp = await fetch(endpoint, {
 						method: 'POST',
 						headers,
-						body: JSON.stringify({ model: 'hermes-agent', messages: apiMessages, stream: true }),
+						body: JSON.stringify({
+							model: capabilities?.model ?? 'hermes-agent',
+							messages: apiMessages,
+							stream: capabilities?.features.run_events_sse ?? true,
+						}),
 						signal: controller.signal,
 					})
 
@@ -272,7 +347,7 @@ export function HermesPanel({
 
 			void sendRequest()
 		},
-		[input, isLoading, messages, sessionKey, baseURL, propApiKey, effectiveDeps]
+		[input, isLoading, messages, sessionKey, baseURL, propApiKey, effectiveDeps, capabilities]
 	)
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
@@ -338,6 +413,16 @@ export function HermesPanel({
 
 			<div className={styles.historySectionWrapper}>
 				<div className={styles.historySection} ref={historyRef}>
+					{capabilities?.auth.required && !(propApiKey || import.meta.env.VITE_HERMES_API_KEY) && (
+						<div className={`${styles.historyItem} ${styles.error}`}>
+							<div className={styles.historyContent}>
+								<span className={styles.statusIcon}>⚠️</span>
+								<span>
+									Server requires authentication. Provide apiKey prop or set VITE_HERMES_API_KEY.
+								</span>
+							</div>
+						</div>
+					)}
 					{messages.length === 0 ? (
 						<div className={styles.historyItem}>
 							<div className={styles.historyContent}>
@@ -359,9 +444,19 @@ export function HermesPanel({
 			</div>
 
 			<div className={styles.header} onClick={() => setIsExpanded((v) => !v)}>
-				<div className={styles.statusSection}>
+				<div
+					className={styles.statusSection}
+					title={buildHealthTooltip(serverHealth, detailedHealth)}
+				>
 					<div
-						className={`${styles.indicator} ${isLoading ? styles.thinking : styles.completed}`}
+						className={[
+							styles.indicator,
+							isLoading
+								? styles.thinking
+								: serverHealth === 'error'
+									? styles.error
+									: styles.completed,
+						].join(' ')}
 					/>
 					<div className={styles.statusText}>{isLoading ? '正在思考...' : 'Hermes Agent'}</div>
 				</div>
@@ -486,4 +581,13 @@ export function HermesPanel({
 			</div>
 		</div>
 	)
+}
+
+function buildHealthTooltip(health: ServerHealth, detail: DetailedHealth | null): string {
+	if (health === null) return ''
+	if (health === 'error') return 'Server unreachable'
+	const parts: string[] = ['Server: ok']
+	if (detail?.active_sessions != null) parts.push(`Sessions: ${detail.active_sessions}`)
+	if (detail?.running_agents != null) parts.push(`Agents: ${detail.running_agents}`)
+	return parts.join(' · ')
 }
