@@ -171,7 +171,7 @@ export function HermesPanel({
 	const recordingTabRef = useRef<RecordingTab | null>(null)
 	const sessionStartIndexRef = useRef(0)
 	// useState lazy initializer runs getSessionKey exactly once
-	const [sessionKey] = useState(getSessionKey)
+	const [sessionKey, setSessionKey] = useState(getSessionKey)
 
 	// Effective deps: external prop takes priority, otherwise use internal
 	const effectiveDeps = recording ?? internalDeps
@@ -352,6 +352,20 @@ export function HermesPanel({
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
 
+	const newConversation = useCallback(() => {
+		abortRef.current?.abort()
+		setMessages([])
+		setInput('')
+		setIsExpanded(false)
+		const key = crypto.randomUUID()
+		try {
+			localStorage.setItem('hermes-session-key', key)
+		} catch {
+			// sandboxed iframe — key lives in memory only
+		}
+		setSessionKey(key)
+	}, [])
+
 	const toggleRecording = useCallback(async () => {
 		if (!effectiveDeps) return
 		const { recorder } = effectiveDeps
@@ -500,6 +514,20 @@ export function HermesPanel({
 							≡
 						</button>
 					)}
+					<button
+						className={styles.controlButton}
+						title="新对话"
+						onPointerDown={() => {
+							if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
+						}}
+						onClick={(e) => {
+							e.stopPropagation()
+							newConversation()
+							effectiveDeps?.recorder.setAgentActing(false)
+						}}
+					>
+						+
+					</button>
 					<button
 						className={`${styles.controlButton} ${styles.expandButton}`}
 						title={isExpanded ? '收起' : '展开历史'}
