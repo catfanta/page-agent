@@ -24,6 +24,11 @@ interface DetailedHealth {
 	[key: string]: unknown
 }
 
+interface HealthState {
+	status: ServerHealth
+	detail: DetailedHealth | null
+}
+
 interface HermesCapabilities {
 	object: string
 	platform: string
@@ -56,6 +61,10 @@ interface HermesPanelProps {
 	 * PageController + Recorder + Replayer automatically.
 	 */
 	recording?: RecordingDeps
+}
+
+function buildHermesEndpoint(baseURL: string | undefined, path: string): string {
+	return baseURL ? `${baseURL}${path}` : `/api/hermes${path}`
 }
 
 function messageItemClass(msg: Message): string {
@@ -96,6 +105,8 @@ async function readSSEStream(
 			const lines = buffer.split('\n')
 			buffer = lines.pop() ?? ''
 
+			// Accumulate all deltas from this read() chunk before updating state
+			let accumulated = ''
 			for (const line of lines) {
 				if (!line.startsWith('data: ')) continue
 				const payload = line.slice(6).trim()
@@ -104,17 +115,18 @@ async function readSSEStream(
 					const chunk = JSON.parse(payload) as {
 						choices?: { delta?: { content?: string } }[]
 					}
-					const delta = chunk.choices?.[0]?.delta?.content ?? ''
-					if (!delta) continue
-					hasContent = true
-					setMessages((prev) =>
-						prev.map((m) =>
-							m.id === assistantId ? { ...m, content: m.content + delta, pending: false } : m
-						)
-					)
+					accumulated += chunk.choices?.[0]?.delta?.content ?? ''
 				} catch {
 					// ignore malformed SSE chunks
 				}
+			}
+			if (accumulated) {
+				hasContent = true
+				setMessages((prev) =>
+					prev.map((m) =>
+						m.id === assistantId ? { ...m, content: m.content + accumulated, pending: false } : m
+					)
+				)
 			}
 		}
 	} finally {
@@ -160,8 +172,7 @@ export function HermesPanel({
 	const [isRecording, setIsRecording] = useState(false)
 	const [isRecListExpanded, setIsRecListExpanded] = useState(false)
 	const [capabilities, setCapabilities] = useState<HermesCapabilities | null>(null)
-	const [serverHealth, setServerHealth] = useState<ServerHealth>(null)
-	const [detailedHealth, setDetailedHealth] = useState<DetailedHealth | null>(null)
+	const [health, setHealth] = useState<HealthState>({ status: null, detail: null })
 	// Internal deps created when recording prop is not provided
 	const [internalDeps, setInternalDeps] = useState<RecordingDeps | null>(null)
 
@@ -175,6 +186,7 @@ export function HermesPanel({
 
 	// Effective deps: external prop takes priority, otherwise use internal
 	const effectiveDeps = recording ?? internalDeps
+	const effectiveApiKey = propApiKey || import.meta.env.VITE_HERMES_API_KEY
 
 	const isLoading = messages.some((m) => m.pending)
 
@@ -186,38 +198,40 @@ export function HermesPanel({
 	useEffect(() => {
 		// When no explicit baseURL, route through the Vite proxy prefix so /health
 		// hits the Hermes server rather than the dev server itself.
-		const healthBase = baseURL ?? '/api/hermes'
-		const effectiveApiKey = propApiKey || import.meta.env.VITE_HERMES_API_KEY
 		const headers: Record<string, string> = {}
 		if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
 		const check = async () => {
 			try {
-				const r = await fetch(`${healthBase}/health`, { headers })
+				const r = await fetch(buildHermesEndpoint(baseURL, '/health'), { headers })
 				if (!r.ok) throw new Error(`HTTP ${r.status}`)
-				setServerHealth('ok')
-				fetch(`${healthBase}/health/detailed`, { headers })
+				setHealth((prev) => (prev.status === 'ok' ? prev : { ...prev, status: 'ok' }))
+				fetch(buildHermesEndpoint(baseURL, '/health/detailed'), { headers })
 					.then((dr) => (dr.ok ? dr.json() : null))
-					.then((d: DetailedHealth | null) => setDetailedHealth(d))
+					.then((d: DetailedHealth | null) => {
+						setHealth((prev) =>
+							prev.detail?.active_sessions === d?.active_sessions &&
+							prev.detail?.running_agents === d?.running_agents
+								? prev
+								: { ...prev, detail: d }
+						)
+					})
 					.catch(() => {})
 			} catch {
-				setServerHealth('error')
-				setDetailedHealth(null)
+				setHealth((prev) => (prev.status === 'error' ? prev : { status: 'error', detail: null }))
 			}
 		}
 
 		void check()
 		const timer = setInterval(() => void check(), 30_000)
 		return () => clearInterval(timer)
-	}, [baseURL, propApiKey])
+	}, [baseURL, effectiveApiKey])
 
 	useEffect(() => {
-		const endpoint = baseURL ? `${baseURL}/v1/capabilities` : '/api/hermes/v1/capabilities'
-		const effectiveApiKey = propApiKey || import.meta.env.VITE_HERMES_API_KEY
 		const headers: Record<string, string> = {}
 		if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
-		fetch(endpoint, { headers })
+		fetch(buildHermesEndpoint(baseURL, '/v1/capabilities'), { headers })
 			.then((r) => (r.ok ? r.json() : null))
 			.then((data: HermesCapabilities | null) => {
 				if (data?.object === 'hermes.api_server.capabilities') setCapabilities(data)
@@ -225,7 +239,7 @@ export function HermesPanel({
 			.catch(() => {
 				// capabilities endpoint unavailable — degrade gracefully
 			})
-	}, [baseURL, propApiKey])
+	}, [baseURL, effectiveApiKey])
 
 	useEffect(() => {
 		const el = historyRef.current
@@ -300,13 +314,9 @@ export function HermesPanel({
 						'Content-Type': 'application/json',
 						'X-Hermes-Session-Key': sessionKey,
 					}
-					const effectiveApiKey = propApiKey || import.meta.env.VITE_HERMES_API_KEY
 					if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
-					const endpoint = baseURL
-						? `${baseURL}/v1/chat/completions`
-						: '/api/hermes/v1/chat/completions'
-					const resp = await fetch(endpoint, {
+					const resp = await fetch(buildHermesEndpoint(baseURL, '/v1/chat/completions'), {
 						method: 'POST',
 						headers,
 						body: JSON.stringify({
@@ -347,7 +357,7 @@ export function HermesPanel({
 
 			void sendRequest()
 		},
-		[input, isLoading, messages, sessionKey, baseURL, propApiKey, effectiveDeps, capabilities]
+		[input, isLoading, messages, sessionKey, baseURL, effectiveApiKey, effectiveDeps, capabilities]
 	)
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
@@ -411,6 +421,10 @@ export function HermesPanel({
 		})
 	}, [])
 
+	const handleButtonPointerDown = useCallback(() => {
+		if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
+	}, [isRecording, effectiveDeps])
+
 	return (
 		<div
 			className={[
@@ -427,7 +441,7 @@ export function HermesPanel({
 
 			<div className={styles.historySectionWrapper}>
 				<div className={styles.historySection} ref={historyRef}>
-					{capabilities?.auth.required && !(propApiKey || import.meta.env.VITE_HERMES_API_KEY) && (
+					{capabilities?.auth.required && !effectiveApiKey && (
 						<div className={`${styles.historyItem} ${styles.error}`}>
 							<div className={styles.historyContent}>
 								<span className={styles.statusIcon}>⚠️</span>
@@ -460,14 +474,14 @@ export function HermesPanel({
 			<div className={styles.header} onClick={() => setIsExpanded((v) => !v)}>
 				<div
 					className={styles.statusSection}
-					title={buildHealthTooltip(serverHealth, detailedHealth)}
+					title={buildHealthTooltip(health.status, health.detail)}
 				>
 					<div
 						className={[
 							styles.indicator,
 							isLoading
 								? styles.thinking
-								: serverHealth === 'error'
+								: health.status === 'error'
 									? styles.error
 									: styles.completed,
 						].join(' ')}
@@ -483,9 +497,7 @@ export function HermesPanel({
 								isRecording ? styles.recordingActive : '',
 							].join(' ')}
 							title={isRecording ? '停止录制' : '开始录制'}
-							onPointerDown={() => {
-								if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
-							}}
+							onPointerDown={handleButtonPointerDown}
 							onClick={(e) => {
 								e.stopPropagation()
 								void toggleRecording()
@@ -502,9 +514,7 @@ export function HermesPanel({
 								isRecListExpanded ? styles.recListBtnActive : '',
 							].join(' ')}
 							title="录制列表"
-							onPointerDown={() => {
-								if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
-							}}
+							onPointerDown={handleButtonPointerDown}
 							onClick={(e) => {
 								e.stopPropagation()
 								toggleRecList()
@@ -517,9 +527,7 @@ export function HermesPanel({
 					<button
 						className={styles.controlButton}
 						title="新对话"
-						onPointerDown={() => {
-							if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
-						}}
+						onPointerDown={handleButtonPointerDown}
 						onClick={(e) => {
 							e.stopPropagation()
 							newConversation()
@@ -531,9 +539,7 @@ export function HermesPanel({
 					<button
 						className={`${styles.controlButton} ${styles.expandButton}`}
 						title={isExpanded ? '收起' : '展开历史'}
-						onPointerDown={() => {
-							if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
-						}}
+						onPointerDown={handleButtonPointerDown}
 						onClick={(e) => {
 							e.stopPropagation()
 							setIsExpanded((v) => {
@@ -548,9 +554,7 @@ export function HermesPanel({
 					<button
 						className={`${styles.controlButton} ${styles.stopButton}`}
 						title={isLoading ? '停止' : '关闭'}
-						onPointerDown={() => {
-							if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
-						}}
+						onPointerDown={handleButtonPointerDown}
 						onClick={(e) => {
 							e.stopPropagation()
 							if (isLoading) stop()
@@ -581,9 +585,7 @@ export function HermesPanel({
 					{isLoading ? (
 						<button
 							type="button"
-							onPointerDown={() => {
-								if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
-							}}
+							onPointerDown={handleButtonPointerDown}
 							onClick={(e) => {
 								e.stopPropagation()
 								stop()
@@ -597,9 +599,7 @@ export function HermesPanel({
 						<button
 							type="submit"
 							disabled={!input.trim()}
-							onPointerDown={() => {
-								if (isRecording && effectiveDeps) effectiveDeps.recorder.setAgentActing(true)
-							}}
+							onPointerDown={handleButtonPointerDown}
 							style={BASE_BUTTON_STYLE}
 						>
 							发送
@@ -611,9 +611,9 @@ export function HermesPanel({
 	)
 }
 
-function buildHealthTooltip(health: ServerHealth, detail: DetailedHealth | null): string {
-	if (health === null) return ''
-	if (health === 'error') return 'Server unreachable'
+function buildHealthTooltip(status: ServerHealth, detail: DetailedHealth | null): string {
+	if (status === null) return ''
+	if (status === 'error') return 'Server unreachable'
 	const parts: string[] = ['Server: ok']
 	if (detail?.active_sessions != null) parts.push(`Sessions: ${detail.active_sessions}`)
 	if (detail?.running_agents != null) parts.push(`Agents: ${detail.running_agents}`)
