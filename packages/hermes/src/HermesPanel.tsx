@@ -159,12 +159,12 @@ const STOP_BUTTON_STYLE: React.CSSProperties = {
 	color: 'rgb(255,100,100)',
 }
 
-export function HermesPanel({
+export const HermesPanel: React.FC<HermesPanelProps> = ({
 	baseURL,
 	apiKey: propApiKey,
 	onClose,
 	recording,
-}: HermesPanelProps = {}) {
+}) => {
 	const [messages, setMessages] = useState<Message[]>([])
 	const [input, setInput] = useState('')
 	const [isExpanded, setIsExpanded] = useState(false)
