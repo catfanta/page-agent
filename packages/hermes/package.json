@@ -20,7 +20,8 @@
                 "import": "./dist/lib/hermes.js",
                 "default": "./dist/lib/hermes.js"
             }
-        }
+        },
+        "dependencies": {}
     },
     "files": [
         "dist/"
@@ -41,6 +42,8 @@
         "build:demo": "vite build --config vite.iife.config.js",
         "dev:demo": "concurrently \"vite build --config vite.iife.config.js --watch\" \"npx serve dist/iife -p 5176\" \"node cors-proxy.mjs\"",
         "build:lib": "vite build --config vite.lib.config.js",
+        "prepack": "node ../../scripts/pre-publish.js && npm run build:lib",
+        "postpack": "node ../../scripts/post-publish.js",
         "prepublishOnly": "node ../../scripts/pre-publish.js && npm run build:lib",
         "postpublish": "node ../../scripts/post-publish.js"
     },

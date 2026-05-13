@@ -149,10 +149,13 @@ npm install @page-agent/hermes
 
 ```bash
 # 在 packages/hermes 下执行
-# npm pack 同样会触发 prepublishOnly（exports 切换 + 构建），生成可安装的 .tgz
+# prepack 钩子会自动完成：manifest 重写（exports 切换到 dist/）+ lib 构建
 npm pack
 # 输出：page-agent-hermes-1.8.0.tgz（文件名随版本号变化）
 ```
+
+> **注意**：`prepack` 会将内部依赖（`@page-agent/*`）从 tarball 的 `dependencies` 中移除，
+> 因为它们已被打包进 `dist/lib/hermes.js`，消费方无需单独安装。
 
 在消费方项目中安装：
 
