@@ -98,7 +98,7 @@ export class RecordingTab {
 			previewList.innerHTML = steps
 				.map(
 					(s, i) =>
-						`<div class="pa-rec-action-row">[${i}] ${s.action.type} &nbsp;<span class="pa-rec-action-desc">${this.actionDesc(s.action)}</span></div>`
+						`<div class="pa-rec-action-row">[${i}] ${s.action.type} &nbsp;<span class="pa-rec-action-desc">${escapeHtml(this.actionDesc(s.action))}</span></div>`
 				)
 				.join('')
 		}, 500)
@@ -114,11 +114,11 @@ export class RecordingTab {
 	private actionDesc(a: RecordedAction): string {
 		switch (a.type) {
 			case 'input_text':
-				return `${a.elementText}  →  "${a.text}"`
+				return `${extractElementLabel(a.elementText)}  →  "${a.text}"`
 			case 'click_element_by_index':
-				return a.elementText || a.elementHint || ''
+				return extractElementLabel(a.elementText) || a.elementHint || ''
 			case 'select_dropdown_option':
-				return `${a.elementText}  →  "${a.optionText}"`
+				return `${extractElementLabel(a.elementText)}  →  "${a.optionText}"`
 			case 'navigate':
 				return a.url
 			case 'scroll':
@@ -212,7 +212,7 @@ export class RecordingTab {
 				<div class="pa-rec-action-row">
 					<span class="pa-rec-action-index">${i + 1}</span>
 					<span class="pa-rec-action-type">${s.action.type}</span>
-					<span class="pa-rec-action-desc">${this.actionDesc(s.action)}</span>
+					<span class="pa-rec-action-desc">${escapeHtml(this.actionDesc(s.action))}</span>
 					<button class="pa-rec-btn pa-rec-action-del" data-action-index="${i}" title="Delete this step">✕</button>
 				</div>
 			`
@@ -293,4 +293,12 @@ function escapeHtml(text: string): string {
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;')
 		.replace(/'/g, '&#039;')
+}
+
+/** Extract the human-readable label from elementText format "[N]<tag attrs>label />" */
+function extractElementLabel(elementText: string): string {
+	return elementText
+		.replace(/^\[\d+\]<[^>]*>/, '')
+		.replace(/\s*\/>$/, '')
+		.trim()
 }

@@ -65,13 +65,6 @@ export class Recorder {
 		// scroll — throttled via requestAnimationFrame
 		this.on(window, 'scroll', this.handleScroll, { passive: true, capture: false })
 
-		// navigation
-		this.on(window, 'popstate', this.handleNavigate)
-		this.on(window, 'hashchange', this.handleNavigate)
-
-		// intercept pushState / replaceState (SPA navigation)
-		this.patchHistory()
-
 		// Pre-populate selectorMap/elementTextMap so the first interaction resolves correctly
 		void this.pageController.updateTree()
 	}
@@ -82,7 +75,6 @@ export class Recorder {
 			target.removeEventListener(type, fn, options as boolean)
 		}
 		this.listeners = []
-		this.unpatchHistory()
 		if (this.scrollDebounceTimer !== null) {
 			clearTimeout(this.scrollDebounceTimer)
 			this.scrollDebounceTimer = null
@@ -221,42 +213,6 @@ export class Recorder {
 			this.pushStep({ type: 'scroll', down: delta > 0, pixels: Math.round(Math.abs(delta)) })
 			this.lastScrollY = window.scrollY
 		}, 300)
-	}
-
-	private handleNavigate = (): void => {
-		if (this.agentActing) return
-		this.pushStep({ type: 'navigate', url: window.location.href })
-	}
-
-	// ─── History patch (SPA pushState/replaceState) ───────────────────────────
-
-	private originalPushState: History['pushState'] | null = null
-	private originalReplaceState: History['replaceState'] | null = null
-
-	private patchHistory(): void {
-		this.originalPushState = history.pushState.bind(history)
-		this.originalReplaceState = history.replaceState.bind(history)
-
-		history.pushState = (...args: Parameters<History['pushState']>) => {
-			this.originalPushState!(...args)
-			if (!this.agentActing) {
-				this.pushStep({ type: 'navigate', url: window.location.href })
-			}
-		}
-
-		history.replaceState = (...args: Parameters<History['replaceState']>) => {
-			this.originalReplaceState!(...args)
-			if (!this.agentActing) {
-				this.pushStep({ type: 'navigate', url: window.location.href })
-			}
-		}
-	}
-
-	private unpatchHistory(): void {
-		if (this.originalPushState) history.pushState = this.originalPushState
-		if (this.originalReplaceState) history.replaceState = this.originalReplaceState
-		this.originalPushState = null
-		this.originalReplaceState = null
 	}
 
 	// ─── Helpers ─────────────────────────────────────────────────────────────
