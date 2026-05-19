@@ -514,11 +514,13 @@ export function getElementTextMap(simplifiedHTML: string) {
 		.filter((line) => line.length > 0)
 	const elementTextMap = new Map<number, string>()
 	for (const line of lines) {
+		// Strip '*' prefix that marks newly-detected elements — not meaningful for text matching
+		const normalizedLine = line.startsWith('*') ? line.slice(1) : line
 		const regex = /^\[(\d+)\]<[^>]+>([^<]*)/
-		const match = regex.exec(line)
+		const match = regex.exec(normalizedLine)
 		if (match) {
 			const index = parseInt(match[1], 10)
-			elementTextMap.set(index, line)
+			elementTextMap.set(index, normalizedLine)
 		}
 	}
 

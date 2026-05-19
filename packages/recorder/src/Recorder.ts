@@ -71,6 +71,9 @@ export class Recorder {
 
 		// intercept pushState / replaceState (SPA navigation)
 		this.patchHistory()
+
+		// Pre-populate selectorMap/elementTextMap so the first interaction resolves correctly
+		void this.pageController.updateTree()
 	}
 
 	/** Stop listening and clean up all event listeners. */
