@@ -23,7 +23,10 @@ export default defineConfig({
 		// Panel.module.css and other styles are bundled into JS — consumers need no separate CSS import
 		cssInjectedByJsPlugin({ relativeCSSInjection: true }),
 	],
-	publicDir: false,
+	// Copy public/ (e.g. soldier.glb) into dist/lib so the model ships with the
+	// published package. Consumers reference it at
+	// '@page-agent/openhuman/dist/lib/soldier.glb'.
+	publicDir: resolve(__dirname, 'public'),
 	build: {
 		lib: {
 			entry: resolve(__dirname, 'src/index.ts'),

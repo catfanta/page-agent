@@ -408,6 +408,7 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 
 	return (
 		<div
+			data-openhuman-panel=""
 			className={[
 				styles.wrapper,
 				isExpanded ? styles.expanded : '',
