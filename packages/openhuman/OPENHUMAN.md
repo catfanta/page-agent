@@ -9,9 +9,9 @@
 | 功能 | 说明 |
 |------|------|
 | 对话界面 | 固定在页面底部的浮层面板，支持折叠/展开 |
-| 流式响应 | 通过 SSE（Server-Sent Events）实时呈现回复 |
-| 多轮上下文 | 对话历史随 `messages` 数组一并发送，无需后端会话状态 |
-| 模型发现 | 启动时拉取 `/v1/models`，自动选用首个可用模型（可用 `model` prop 覆盖） |
+| 流式响应 | 通过 SSE（Server-Sent Events）实时呈现回复，逐字 `text_delta` 拼接 |
+| 多轮上下文 | 上下文由后端按 `thread_id` 保存，仅发送最新一条消息 |
+| 模型覆盖 | 默认使用后端配置模型，可用 `model` prop / `VITE_OPENHUMAN_MODEL` 覆盖 |
 | 书签注入 | IIFE 构建产物可通过 script 标签或书签脚本注入任意页面 |
 | 灵活配置 | 通过脚本 URL 参数传入后端地址和鉴权 token |
 
@@ -22,17 +22,19 @@
 ```
 浏览器页面
 └── OpenHumanPanel（React 浮层）
-        │  GET  /v1/models            模型发现
-        │  GET  /health               健康检查
-        │  POST /v1/chat/completions  对话（OpenAI 兼容，SSE 流式）
-        ▼
+        │  GET  /health                              健康检查
+        │  POST /rpc  core.events_subscribe_token    铸造一次性 SSE bind token
+        │  GET  /events?client_id&token              打开 SSE 事件流（保持连接）
+        │  POST /rpc  openhuman.channel_web_chat      发送消息（立即 ack）
+        ▼                                            回复经 SSE text_delta / chat_done 推送
 OpenHuman 后端（openhuman-web，默认 http://localhost:8080）
 ```
 
-- 采用 OpenAI 兼容接口（文档"方式 C"）。鉴权用 `Authorization: Bearer <OPENHUMAN_CORE_TOKEN>`。
-- 开发模式：Vite 将 `/api/openhuman/*` 代理到 `http://localhost:8080`，前端无需配置跨域。
+- 采用流式对话接口（文档"方式 B"）。`/rpc` 鉴权用 `Authorization: Bearer <OPENHUMAN_CORE_TOKEN>`；SSE 用一次性 bind token。
+- 三步握手：先 `core.events_subscribe_token` 换取 bind token，再打开 `/events` SSE，最后 `openhuman.channel_web_chat` 发消息；事件按 `request_id` 关联回本次请求。
+- 开发模式：Vite 将 `/api/openhuman/*` 代理到 `http://localhost:8080`，`/rpc` 与 `/events` 均按路径转发，前端无需配置跨域。
 - 注入模式：通过脚本 src 的 `baseURL` 参数直接指向后端，面板以完整 URL 发起请求。
-- 无状态多轮：对话上下文完全由前端 `messages` 数组承载，后端不保存会话，新对话即清空本地历史。
+- 有状态多轮：对话上下文由后端按 `thread_id` 保存，前端仅发送最新一条消息；新对话生成新的 `thread_id` 并清空本地历史。
 
 ---
 

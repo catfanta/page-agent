@@ -17,7 +17,7 @@ interface Message {
 
 type ServerHealth = 'ok' | 'error' | null
 
-// OpenHuman /health response (openhuman-web, method C).
+// OpenHuman /health response (openhuman-web).
 interface DetailedHealth {
 	healthy?: boolean
 	degraded?: boolean
@@ -30,12 +30,6 @@ interface HealthState {
 	detail: DetailedHealth | null
 }
 
-// One entry from GET /v1/models (OpenAI-compatible model list).
-interface ModelInfo {
-	id: string
-	object?: string
-}
-
 interface RecordingDeps {
 	recorder: Recorder
 	replayer: Replayer
@@ -46,7 +40,7 @@ interface OpenHumanPanelProps {
 	baseURL?: string
 	/** Bearer token for the OpenHuman server (OPENHUMAN_CORE_TOKEN). Falls back to VITE_OPENHUMAN_CORE_TOKEN env var when omitted. */
 	apiKey?: string
-	/** Model id for chat completions. Falls back to the first model from /v1/models, then 'chat-v1'. */
+	/** Optional model id override, forwarded as channel_web_chat's model_override. */
 	model?: string
 	/** Called when the user closes the panel. */
 	onClose?: () => void
@@ -61,6 +55,35 @@ function buildEndpoint(baseURL: string | undefined, path: string): string {
 	return baseURL ? `${baseURL}${path}` : `/api/openhuman${path}`
 }
 
+interface RpcError {
+	code: number
+	message: string
+}
+
+// Minimal JSON-RPC 2.0 caller for the OpenHuman /rpc endpoint (method B).
+async function rpc(
+	baseURL: string | undefined,
+	apiKey: string | undefined,
+	method: string,
+	params: unknown,
+	signal: AbortSignal,
+	id = 1
+): Promise<any> {
+	const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+	if (apiKey) headers.Authorization = `Bearer ${apiKey}`
+
+	const resp = await fetch(buildEndpoint(baseURL, '/rpc'), {
+		method: 'POST',
+		headers,
+		body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+		signal,
+	})
+	if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
+	const data = (await resp.json()) as { result?: any; error?: RpcError }
+	if (data.error) throw new Error(`RPC ${data.error.code}: ${data.error.message}`)
+	return data.result
+}
+
 function messageItemClass(msg: Message): string {
 	if (msg.role === 'user') return styles.input
 	if (msg.error) return styles.error
@@ -68,40 +91,83 @@ function messageItemClass(msg: Message): string {
 	return styles.output
 }
 
-async function readSSEStream(
+// Payload shared by every method-B SSE event.
+interface SSEEvent {
+	event?: string
+	request_id?: string
+	delta?: string
+	full_response?: string
+	message?: string
+}
+
+/**
+ * Consume the method-B `/events` SSE stream until `chat_done` for our request.
+ *
+ * The stream carries events for every request on the same client_id, so each
+ * event is filtered by `request_id` (the empty string is treated as broadcast).
+ * `text_delta` events are the incremental reply; `chat_done.full_response` is
+ * the authoritative final text; `chat_error`/`error` surface failures.
+ */
+async function readMethodBStream(
 	resp: Response,
+	myRequestId: string,
 	assistantId: string,
 	setMessages: React.Dispatch<React.SetStateAction<Message[]>>
 ) {
 	const reader = resp.body!.getReader()
 	const decoder = new TextDecoder()
 	let buffer = ''
+	let full = ''
 	let hasContent = false
+
+	const isMine = (p: SSEEvent) => p.request_id === myRequestId || p.request_id === ''
 
 	try {
 		while (true) {
 			const { done, value } = await reader.read()
 			if (done) break
 			buffer += decoder.decode(value, { stream: true })
-			const lines = buffer.split('\n')
-			buffer = lines.pop() ?? ''
 
-			// Accumulate all deltas from this read() chunk before updating state
+			// SSE events are separated by a blank line. Keep the trailing partial
+			// event in the buffer until its terminating blank line arrives.
+			const blocks = buffer.split('\n\n')
+			buffer = blocks.pop() ?? ''
+
 			let accumulated = ''
-			for (const line of lines) {
-				if (!line.startsWith('data: ')) continue
-				const payload = line.slice(6).trim()
-				if (payload === '[DONE]') continue
+			for (const block of blocks) {
+				let eventName = ''
+				let dataRaw = ''
+				for (const line of block.split('\n')) {
+					if (line.startsWith('event:')) eventName = line.slice(6).trim()
+					else if (line.startsWith('data:')) dataRaw += line.slice(5).trim()
+				}
+				if (!dataRaw) continue
+
+				let payload: SSEEvent
 				try {
-					const chunk = JSON.parse(payload) as {
-						choices?: { delta?: { content?: string } }[]
-					}
-					accumulated += chunk.choices?.[0]?.delta?.content ?? ''
+					payload = JSON.parse(dataRaw) as SSEEvent
 				} catch {
-					// ignore malformed SSE chunks
+					continue // ignore malformed SSE chunks
+				}
+				const name = eventName || payload.event
+				if (!isMine(payload)) continue
+
+				if (name === 'text_delta') {
+					accumulated += payload.delta ?? ''
+				} else if (name === 'chat_done') {
+					// full_response is authoritative; fall back to accumulated deltas.
+					const final = payload.full_response ?? full + accumulated
+					setMessages((prev) =>
+						prev.map((m) => (m.id === assistantId ? { ...m, content: final, pending: false } : m))
+					)
+					return
+				} else if (name === 'chat_error' || name === 'error') {
+					throw new Error(payload.message || 'chat error')
 				}
 			}
+
 			if (accumulated) {
+				full += accumulated
 				hasContent = true
 				setMessages((prev) =>
 					prev.map((m) =>
@@ -114,6 +180,7 @@ async function readSSEStream(
 		reader.releaseLock()
 	}
 
+	// Stream ended without chat_done (connection dropped): clear the pending flag.
 	if (!hasContent) {
 		setMessages((prev) =>
 			prev.map((m) => (m.id === assistantId && m.pending ? { ...m, pending: false } : m))
@@ -153,7 +220,6 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	const [visible, setVisible] = useState(false)
 	const [isRecording, setIsRecording] = useState(false)
 	const [isRecListExpanded, setIsRecListExpanded] = useState(false)
-	const [models, setModels] = useState<ModelInfo[]>([])
 	const [health, setHealth] = useState<HealthState>({ status: null, detail: null })
 	// Internal deps created when recording prop is not provided
 	const [internalDeps, setInternalDeps] = useState<RecordingDeps | null>(null)
@@ -163,6 +229,12 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	const recListRef = useRef<HTMLDivElement>(null)
 	const recordingTabRef = useRef<RecordingTab | null>(null)
 	const sessionStartIndexRef = useRef(0)
+	// Method-B session identifiers. client_id ties the SSE subscription to the
+	// chat request; thread_id groups turns into one server-side conversation.
+	// Lazily initialized on first access to keep render pure; a new conversation
+	// regenerates the thread_id (see newConversation).
+	const clientIdRef = useRef<string | null>(null)
+	const threadIdRef = useRef<string | null>(null)
 
 	// Effective deps: external prop takes priority, otherwise use internal
 	const effectiveDeps = recording ?? internalDeps
@@ -170,10 +242,8 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	// else undefined (routes through the relative /api/openhuman proxy prefix).
 	const baseURL = propBaseURL || import.meta.env.VITE_OPENHUMAN_BASE_URL || undefined
 	const effectiveApiKey = propApiKey || import.meta.env.VITE_OPENHUMAN_CORE_TOKEN
-	// Model id: explicit prop wins, else the VITE_OPENHUMAN_MODEL env var,
-	// else the first advertised model, else the doc default.
-	const effectiveModel =
-		propModel ?? import.meta.env.VITE_OPENHUMAN_MODEL ?? models[0]?.id ?? 'chat-v1'
+	// Optional model override forwarded to channel_web_chat. Empty → server default.
+	const effectiveModel = propModel || import.meta.env.VITE_OPENHUMAN_MODEL || undefined
 
 	const isLoading = messages.some((m) => m.pending)
 
@@ -210,22 +280,6 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 		void check()
 		const timer = setInterval(() => void check(), 30_000)
 		return () => clearInterval(timer)
-	}, [baseURL, effectiveApiKey])
-
-	useEffect(() => {
-		// GET /v1/models to pick a default model id. Some deployments gate it behind
-		// the same Bearer token as /rpc, so send the token when we have one.
-		const headers: Record<string, string> = {}
-		if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
-
-		fetch(buildEndpoint(baseURL, '/v1/models'), { headers })
-			.then((r) => (r.ok ? r.json() : null))
-			.then((data: { data?: ModelInfo[] } | null) => {
-				if (Array.isArray(data?.data)) setModels(data.data)
-			})
-			.catch(() => {
-				// models endpoint unavailable — fall back to the default model id
-			})
 	}, [baseURL, effectiveApiKey])
 
 	useEffect(() => {
@@ -278,10 +332,6 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 			const text = input.trim()
 			if (!text || isLoading) return
 
-			const apiMessages = [
-				...messages.map((m) => ({ role: m.role, content: m.content })),
-				{ role: 'user' as const, content: text },
-			]
 			const assistantId = crypto.randomUUID()
 
 			setMessages((prev) => [
@@ -295,37 +345,53 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 			const controller = new AbortController()
 			abortRef.current = controller
 
+			// Method B: mint a one-time SSE bind token, open the /events stream,
+			// then POST the message. The SSE connection must be established before
+			// sending so no early events are missed; events are correlated back to
+			// this request by request_id. Multi-turn context lives server-side under
+			// thread_id, so only the latest message is sent.
 			const sendRequest = async () => {
 				try {
-					const headers: Record<string, string> = {
-						'Content-Type': 'application/json',
+					const clientId = (clientIdRef.current ??= `ext-${crypto.randomUUID().slice(0, 8)}`)
+					const threadId = (threadIdRef.current ??= `t-${crypto.randomUUID().slice(0, 8)}`)
+
+					const { token } = await rpc(
+						baseURL,
+						effectiveApiKey,
+						'core.events_subscribe_token',
+						{ client_id: clientId },
+						controller.signal,
+						1
+					)
+
+					const sse = await fetch(
+						buildEndpoint(baseURL, '/events') +
+							`?client_id=${encodeURIComponent(clientId)}&token=${encodeURIComponent(token)}`,
+						{ signal: controller.signal }
+					)
+					if (!sse.ok || !sse.body) {
+						throw new Error(`SSE HTTP ${sse.status}: ${await sse.text()}`)
 					}
-					if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
-					const resp = await fetch(buildEndpoint(baseURL, '/v1/chat/completions'), {
-						method: 'POST',
-						headers,
-						body: JSON.stringify({
-							model: effectiveModel,
-							messages: apiMessages,
-							stream: true,
-						}),
-						signal: controller.signal,
-					})
-
-					if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
-
-					if (resp.headers.get('content-type')?.includes('text/event-stream')) {
-						await readSSEStream(resp, assistantId, setMessages)
-					} else {
-						const data = (await resp.json()) as {
-							choices?: { message?: { content?: string } }[]
-						}
-						const content = data.choices?.[0]?.message?.content ?? ''
-						setMessages((prev) =>
-							prev.map((m) => (m.id === assistantId ? { ...m, content, pending: false } : m))
-						)
+					const params: Record<string, unknown> = {
+						client_id: clientId,
+						thread_id: threadId,
+						message: text,
 					}
+					if (effectiveModel) params.model_override = effectiveModel
+
+					const ack = await rpc(
+						baseURL,
+						effectiveApiKey,
+						'openhuman.channel_web_chat',
+						params,
+						controller.signal,
+						2
+					)
+					// ack shape: { logs, result: { accepted, request_id, ... } }
+					const myRequestId: string = ack?.result?.request_id ?? ''
+
+					await readMethodBStream(sse, myRequestId, assistantId, setMessages)
 				} catch (err) {
 					const isAbort = err instanceof Error && err.name === 'AbortError'
 					const errorMsg = err instanceof Error ? err.message : String(err)
@@ -343,15 +409,16 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 
 			void sendRequest()
 		},
-		[input, isLoading, messages, baseURL, effectiveApiKey, effectiveDeps, effectiveModel]
+		[input, isLoading, baseURL, effectiveApiKey, effectiveDeps, effectiveModel]
 	)
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
 
-	// Method C is stateless: multi-turn context lives entirely in the `messages`
-	// array, so a new conversation just clears local state.
+	// A new conversation starts a fresh server-side thread and clears local state.
+	// The client_id can be reused; only thread_id needs to change to drop context.
 	const newConversation = useCallback(() => {
 		abortRef.current?.abort()
+		threadIdRef.current = `t-${crypto.randomUUID().slice(0, 8)}`
 		setMessages([])
 		setInput('')
 		setIsExpanded(false)
