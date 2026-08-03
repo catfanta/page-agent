@@ -9,7 +9,8 @@
         ".": {
             "types": "./src/index.ts",
             "default": "./src/index.ts"
-        }
+        },
+        "./soldier.glb": "./public/soldier.glb"
     },
     "publishConfig": {
         "main": "./dist/lib/openhuman.js",
@@ -19,7 +20,8 @@
                 "types": "./dist/lib/openhuman.d.ts",
                 "import": "./dist/lib/openhuman.js",
                 "default": "./dist/lib/openhuman.js"
-            }
+            },
+            "./soldier.glb": "./dist/lib/soldier.glb"
         },
         "dependencies": {}
     },
