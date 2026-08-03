@@ -6,9 +6,9 @@ export default defineConfig({
 	plugins: [react(), tailwindcss()],
 	server: {
 		proxy: {
-			'/api/hermes': {
-				target: 'http://localhost:8642',
-				rewrite: (path) => path.replace(/^\/api\/hermes/, ''),
+			'/api/openhuman': {
+				target: 'http://localhost:8080',
+				rewrite: (path) => path.replace(/^\/api\/openhuman/, ''),
 				changeOrigin: true,
 			},
 		},

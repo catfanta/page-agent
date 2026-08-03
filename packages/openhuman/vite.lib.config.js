@@ -42,7 +42,9 @@ export default defineConfig({
 	},
 	define: {
 		'process.env.NODE_ENV': '"production"',
-		// API key must be passed via the apiKey prop in library mode
-		'import.meta.env.VITE_HERMES_API_KEY': '""',
+		// baseURL / apiKey / model must be passed via props in library mode
+		'import.meta.env.VITE_OPENHUMAN_BASE_URL': '""',
+		'import.meta.env.VITE_OPENHUMAN_CORE_TOKEN': '""',
+		'import.meta.env.VITE_OPENHUMAN_MODEL': '""',
 	},
 })

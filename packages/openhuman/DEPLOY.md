@@ -20,7 +20,7 @@
 cd packages/openhuman
 
 # 可选：在 .env.local 中预设 API key，避免在 URL 中明文传递
-echo "VITE_HERMES_API_KEY=your-secret-key" > .env.local
+echo "VITE_OPENHUMAN_CORE_TOKEN=your-secret-key" > .env.local
 
 npm run build:demo
 # 输出：dist/iife/openhuman.demo.js
@@ -45,7 +45,7 @@ npx serve dist/iife -p 5176
 
 ```html
 <!-- 生产环境：指向 CDN 地址和实际后端 -->
-<script src="https://cdn.example.com/openhuman.demo.js?baseURL=https://hermes.example.com"></script>
+<script src="https://cdn.example.com/openhuman.demo.js?baseURL=https://openhuman.example.com"></script>
 
 <!-- 开发环境：本地文件服务 + CORS 代理 -->
 <script src="http://localhost:5176/openhuman.demo.js?baseURL=http://localhost:5177"></script>
@@ -55,8 +55,8 @@ npx serve dist/iife -p 5176
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `baseURL` | Hermes 后端地址（不含路径） | 空（同源相对请求） |
-| `apiKey` | Bearer token，明文写在 URL 中有泄漏风险，建议构建时内联 | 构建时内联的 `VITE_HERMES_API_KEY` |
+| `baseURL` | OpenHuman 后端地址（不含路径） | 空（同源相对请求） |
+| `apiKey` | Bearer token，明文写在 URL 中有泄漏风险，建议构建时内联 | 构建时内联的 `VITE_OPENHUMAN_CORE_TOKEN` |
 
 **4. 控制面板生命周期**
 
@@ -71,30 +71,30 @@ window.__openhuman.unmount()
 
 ### CORS 注意事项
 
-目标页面与 Hermes 后端不同源时，后端需要允许跨域，或在中间加 CORS 代理。
+目标页面与 OpenHuman 后端不同源时，后端需要允许跨域，或在中间加 CORS 代理。
 
 **方案 A：后端配置 CORS 响应头**（推荐生产环境）
 
-在 Hermes 后端添加：
+在 OpenHuman 后端添加：
 
 ```
 Access-Control-Allow-Origin: https://your-app.example.com
-Access-Control-Allow-Headers: Content-Type, Authorization, X-Hermes-Session-Key
+Access-Control-Allow-Headers: Content-Type, Authorization
 Access-Control-Allow-Methods: POST, OPTIONS
 ```
 
 **方案 B：反向代理**（推荐生产环境）
 
-用 Nginx 或 Cloudflare Worker 在同一域名下代理 Hermes 后端，消除跨域问题：
+用 Nginx 或 Cloudflare Worker 在同一域名下代理 OpenHuman 后端，消除跨域问题：
 
 ```nginx
-location /hermes/ {
-    proxy_pass http://hermes-backend:8642/;
+location /openhuman/ {
+    proxy_pass http://openhuman-backend:8080/;
     proxy_set_header Host $host;
 }
 ```
 
-然后 `baseURL` 填 `/hermes`（同源），无需额外 CORS 配置。
+然后 `baseURL` 填 `/openhuman`（同源），无需额外 CORS 配置。
 
 **方案 C：本地 CORS 代理**（仅开发）
 
@@ -102,7 +102,7 @@ location /hermes/ {
 
 ### 安全提醒
 
-- `VITE_HERMES_API_KEY` 会被内联到 JS 产物中，随页面源码可见。生产环境建议后端通过 Cookie / Session 鉴权，不依赖 Bearer token。
+- `VITE_OPENHUMAN_CORE_TOKEN` 会被内联到 JS 产物中，随页面源码可见。生产环境建议后端通过 Cookie / Session 鉴权，不依赖 Bearer token。
 - `apiKey` URL 参数会出现在请求日志和浏览器历史中，避免在生产环境使用。
 
 ---
@@ -191,7 +191,7 @@ export function App() {
         <div>
             {/* 你的页面内容 */}
             <OpenHumanPanel
-                baseURL="https://hermes.example.com"
+                baseURL="https://openhuman.example.com"
                 apiKey="your-key"
             />
         </div>
@@ -203,8 +203,9 @@ export function App() {
 
 | Prop | 类型 | 说明 |
 |------|------|------|
-| `baseURL` | `string?` | Hermes 后端地址，不传则以相对路径 `/api/hermes/v1/chat/completions` 发请求 |
-| `apiKey` | `string?` | Bearer token |
+| `baseURL` | `string?` | OpenHuman 后端地址；不传则回退到 `VITE_OPENHUMAN_BASE_URL`，仍为空则以相对路径 `/api/openhuman/v1/chat/completions` 发请求 |
+| `apiKey` | `string?` | Bearer token（`OPENHUMAN_CORE_TOKEN`）；不传则回退到 `VITE_OPENHUMAN_CORE_TOKEN` |
+| `model` | `string?` | 对话模型 id；不传则回退到 `VITE_OPENHUMAN_MODEL`，再取 `/v1/models` 首项，最后回退到 `chat-v1` |
 | `onClose` | `() => void?` | 用户点击关闭按钮时的回调 |
 | `recording` | `{ recorder, replayer }?` | 外部注入的录制依赖；不传时组件自动创建 PageController + Recorder + Replayer |
 

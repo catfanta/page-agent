@@ -3,11 +3,11 @@
  * Exposes window.__openhuman for manual control in DevTools.
  *
  * Bookmarklet:
- *   javascript:(function(){var s=document.createElement('script');s.src='http://localhost:5176/openhuman.demo.js?t='+Math.random()+'&baseURL=http://localhost:8642';document.head.appendChild(s);})();
+ *   javascript:(function(){var s=document.createElement('script');s.src='http://localhost:5176/openhuman.demo.js?t='+Math.random()+'&baseURL=http://localhost:8080';document.head.appendChild(s);})();
  *
  * URL params (read from script src):
- *   baseURL  — OpenHuman server base URL, e.g. http://localhost:8642
- *   apiKey   — Bearer token for the OpenHuman server
+ *   baseURL  — OpenHuman server base URL, e.g. http://localhost:8080
+ *   apiKey   — Bearer token for the OpenHuman server (OPENHUMAN_CORE_TOKEN)
  */
 import React from 'react'
 import { createRoot } from 'react-dom/client'

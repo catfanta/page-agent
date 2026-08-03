@@ -17,10 +17,11 @@ interface Message {
 
 type ServerHealth = 'ok' | 'error' | null
 
+// OpenHuman /health response (openhuman-web, method C).
 interface DetailedHealth {
-	status?: string
-	active_sessions?: number
-	running_agents?: number
+	healthy?: boolean
+	degraded?: boolean
+	uptime_seconds?: number
 	[key: string]: unknown
 }
 
@@ -29,19 +30,10 @@ interface HealthState {
 	detail: DetailedHealth | null
 }
 
-interface OpenHumanCapabilities {
-	object: string
-	platform: string
-	model: string
-	auth: { type: string; required: boolean }
-	features: {
-		chat_completions?: boolean
-		responses_api?: boolean
-		run_submission?: boolean
-		run_status?: boolean
-		run_events_sse?: boolean
-		run_stop?: boolean
-	}
+// One entry from GET /v1/models (OpenAI-compatible model list).
+interface ModelInfo {
+	id: string
+	object?: string
 }
 
 interface RecordingDeps {
@@ -50,10 +42,12 @@ interface RecordingDeps {
 }
 
 interface OpenHumanPanelProps {
-	/** OpenHuman server base URL, e.g. 'http://localhost:8642'. Falls back to vite proxy when omitted. */
+	/** OpenHuman server base URL, e.g. 'http://localhost:8080'. Falls back to vite proxy when omitted. */
 	baseURL?: string
-	/** Bearer token for the OpenHuman server. Falls back to VITE_HERMES_API_KEY env var when omitted. */
+	/** Bearer token for the OpenHuman server (OPENHUMAN_CORE_TOKEN). Falls back to VITE_OPENHUMAN_CORE_TOKEN env var when omitted. */
 	apiKey?: string
+	/** Model id for chat completions. Falls back to the first model from /v1/models, then 'chat-v1'. */
+	model?: string
 	/** Called when the user closes the panel. */
 	onClose?: () => void
 	/**
@@ -64,7 +58,7 @@ interface OpenHumanPanelProps {
 }
 
 function buildEndpoint(baseURL: string | undefined, path: string): string {
-	return baseURL ? `${baseURL}${path}` : `/api/hermes${path}`
+	return baseURL ? `${baseURL}${path}` : `/api/openhuman${path}`
 }
 
 function messageItemClass(msg: Message): string {
@@ -72,19 +66,6 @@ function messageItemClass(msg: Message): string {
 	if (msg.error) return styles.error
 	if (msg.pending) return styles.observation
 	return styles.output
-}
-
-// localStorage may throw in sandboxed iframes — fall back to an in-memory UUID
-function getSessionKey(): string {
-	try {
-		const stored = localStorage.getItem('openhuman-session-key')
-		if (stored) return stored
-		const key = crypto.randomUUID()
-		localStorage.setItem('openhuman-session-key', key)
-		return key
-	} catch {
-		return crypto.randomUUID()
-	}
 }
 
 async function readSSEStream(
@@ -160,8 +141,9 @@ const STOP_BUTTON_STYLE: React.CSSProperties = {
 }
 
 export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
-	baseURL,
+	baseURL: propBaseURL,
 	apiKey: propApiKey,
+	model: propModel,
 	onClose,
 	recording,
 }) => {
@@ -171,7 +153,7 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	const [visible, setVisible] = useState(false)
 	const [isRecording, setIsRecording] = useState(false)
 	const [isRecListExpanded, setIsRecListExpanded] = useState(false)
-	const [capabilities, setCapabilities] = useState<OpenHumanCapabilities | null>(null)
+	const [models, setModels] = useState<ModelInfo[]>([])
 	const [health, setHealth] = useState<HealthState>({ status: null, detail: null })
 	// Internal deps created when recording prop is not provided
 	const [internalDeps, setInternalDeps] = useState<RecordingDeps | null>(null)
@@ -181,12 +163,17 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	const recListRef = useRef<HTMLDivElement>(null)
 	const recordingTabRef = useRef<RecordingTab | null>(null)
 	const sessionStartIndexRef = useRef(0)
-	// useState lazy initializer runs getSessionKey exactly once
-	const [sessionKey, setSessionKey] = useState(getSessionKey)
 
 	// Effective deps: external prop takes priority, otherwise use internal
 	const effectiveDeps = recording ?? internalDeps
-	const effectiveApiKey = propApiKey || import.meta.env.VITE_HERMES_API_KEY
+	// Base URL: explicit prop wins, else the VITE_OPENHUMAN_BASE_URL env var,
+	// else undefined (routes through the relative /api/openhuman proxy prefix).
+	const baseURL = propBaseURL || import.meta.env.VITE_OPENHUMAN_BASE_URL || undefined
+	const effectiveApiKey = propApiKey || import.meta.env.VITE_OPENHUMAN_CORE_TOKEN
+	// Model id: explicit prop wins, else the VITE_OPENHUMAN_MODEL env var,
+	// else the first advertised model, else the doc default.
+	const effectiveModel =
+		propModel ?? import.meta.env.VITE_OPENHUMAN_MODEL ?? models[0]?.id ?? 'chat-v1'
 
 	const isLoading = messages.some((m) => m.pending)
 
@@ -205,18 +192,16 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 			try {
 				const r = await fetch(buildEndpoint(baseURL, '/health'), { headers })
 				if (!r.ok) throw new Error(`HTTP ${r.status}`)
-				setHealth((prev) => (prev.status === 'ok' ? prev : { ...prev, status: 'ok' }))
-				fetch(buildEndpoint(baseURL, '/health/detailed'), { headers })
-					.then((dr) => (dr.ok ? dr.json() : null))
-					.then((d: DetailedHealth | null) => {
-						setHealth((prev) =>
-							prev.detail?.active_sessions === d?.active_sessions &&
-							prev.detail?.running_agents === d?.running_agents
-								? prev
-								: { ...prev, detail: d }
-						)
-					})
-					.catch(() => {})
+				// OpenHuman /health returns { healthy, degraded, uptime_seconds, ... }.
+				const d = (await r.json()) as DetailedHealth
+				const nextStatus: ServerHealth = d.healthy === false ? 'error' : 'ok'
+				setHealth((prev) =>
+					prev.status === nextStatus &&
+					prev.detail?.degraded === d.degraded &&
+					prev.detail?.uptime_seconds === d.uptime_seconds
+						? prev
+						: { status: nextStatus, detail: d }
+				)
 			} catch {
 				setHealth((prev) => (prev.status === 'error' ? prev : { status: 'error', detail: null }))
 			}
@@ -228,16 +213,18 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	}, [baseURL, effectiveApiKey])
 
 	useEffect(() => {
+		// GET /v1/models to pick a default model id. Some deployments gate it behind
+		// the same Bearer token as /rpc, so send the token when we have one.
 		const headers: Record<string, string> = {}
 		if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
-		fetch(buildEndpoint(baseURL, '/v1/capabilities'), { headers })
+		fetch(buildEndpoint(baseURL, '/v1/models'), { headers })
 			.then((r) => (r.ok ? r.json() : null))
-			.then((data: OpenHumanCapabilities | null) => {
-				if (data?.object === 'hermes.api_server.capabilities') setCapabilities(data)
+			.then((data: { data?: ModelInfo[] } | null) => {
+				if (Array.isArray(data?.data)) setModels(data.data)
 			})
 			.catch(() => {
-				// capabilities endpoint unavailable — degrade gracefully
+				// models endpoint unavailable — fall back to the default model id
 			})
 	}, [baseURL, effectiveApiKey])
 
@@ -312,7 +299,6 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 				try {
 					const headers: Record<string, string> = {
 						'Content-Type': 'application/json',
-						'X-Hermes-Session-Key': sessionKey,
 					}
 					if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
@@ -320,9 +306,9 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 						method: 'POST',
 						headers,
 						body: JSON.stringify({
-							model: capabilities?.model ?? 'hermes-agent',
+							model: effectiveModel,
 							messages: apiMessages,
-							stream: capabilities?.features.run_events_sse ?? true,
+							stream: true,
 						}),
 						signal: controller.signal,
 					})
@@ -357,23 +343,18 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 
 			void sendRequest()
 		},
-		[input, isLoading, messages, sessionKey, baseURL, effectiveApiKey, effectiveDeps, capabilities]
+		[input, isLoading, messages, baseURL, effectiveApiKey, effectiveDeps, effectiveModel]
 	)
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
 
+	// Method C is stateless: multi-turn context lives entirely in the `messages`
+	// array, so a new conversation just clears local state.
 	const newConversation = useCallback(() => {
 		abortRef.current?.abort()
 		setMessages([])
 		setInput('')
 		setIsExpanded(false)
-		const key = crypto.randomUUID()
-		try {
-			localStorage.setItem('openhuman-session-key', key)
-		} catch {
-			// sandboxed iframe — key lives in memory only
-		}
-		setSessionKey(key)
 	}, [])
 
 	const toggleRecording = useCallback(async () => {
@@ -441,16 +422,6 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 
 			<div className={styles.historySectionWrapper}>
 				<div className={styles.historySection} ref={historyRef}>
-					{capabilities?.auth.required && !effectiveApiKey && (
-						<div className={`${styles.historyItem} ${styles.error}`}>
-							<div className={styles.historyContent}>
-								<span className={styles.statusIcon}>⚠️</span>
-								<span>
-									Server requires authentication. Provide apiKey prop or set VITE_HERMES_API_KEY.
-								</span>
-							</div>
-						</div>
-					)}
 					{messages.length === 0 ? (
 						<div className={styles.historyItem}>
 							<div className={styles.historyContent}>
@@ -614,8 +585,9 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 function buildHealthTooltip(status: ServerHealth, detail: DetailedHealth | null): string {
 	if (status === null) return ''
 	if (status === 'error') return 'Server unreachable'
-	const parts: string[] = ['Server: ok']
-	if (detail?.active_sessions != null) parts.push(`Sessions: ${detail.active_sessions}`)
-	if (detail?.running_agents != null) parts.push(`Agents: ${detail.running_agents}`)
+	const parts: string[] = [detail?.degraded ? 'Server: degraded' : 'Server: ok']
+	if (detail?.uptime_seconds != null) {
+		parts.push(`Uptime: ${Math.floor(detail.uptime_seconds)}s`)
+	}
 	return parts.join(' · ')
 }

@@ -1,6 +1,6 @@
 # @page-agent/openhuman
 
-浮层对话面板，可注入任意网页，与 Hermes Agent 后端通信，实现基于上下文的浏览器自动化对话。
+浮层对话面板，可注入任意网页，与 OpenHuman 后端通信，实现基于上下文的浏览器自动化对话。
 
 ---
 
@@ -10,7 +10,8 @@
 |------|------|
 | 对话界面 | 固定在页面底部的浮层面板，支持折叠/展开 |
 | 流式响应 | 通过 SSE（Server-Sent Events）实时呈现回复 |
-| 会话记忆 | `X-Hermes-Session-Key` 跨刷新保持同一会话，支持后端长期记忆 |
+| 多轮上下文 | 对话历史随 `messages` 数组一并发送，无需后端会话状态 |
+| 模型发现 | 启动时拉取 `/v1/models`，自动选用首个可用模型（可用 `model` prop 覆盖） |
 | 书签注入 | IIFE 构建产物可通过 script 标签或书签脚本注入任意页面 |
 | 灵活配置 | 通过脚本 URL 参数传入后端地址和鉴权 token |
 
@@ -21,23 +22,23 @@
 ```
 浏览器页面
 └── OpenHumanPanel（React 浮层）
-        │  POST /v1/chat/completions（SSE）
+        │  GET  /v1/models            模型发现
+        │  GET  /health               健康检查
+        │  POST /v1/chat/completions  对话（OpenAI 兼容，SSE 流式）
         ▼
-Hermes Agent 后端（默认 http://localhost:8642）
+OpenHuman 后端（openhuman-web，默认 http://localhost:8080）
 ```
 
-- 开发模式：Vite 将 `/api/hermes/*` 代理到 `http://localhost:8642`，前端无需配置跨域。
+- 采用 OpenAI 兼容接口（文档"方式 C"）。鉴权用 `Authorization: Bearer <OPENHUMAN_CORE_TOKEN>`。
+- 开发模式：Vite 将 `/api/openhuman/*` 代理到 `http://localhost:8080`，前端无需配置跨域。
 - 注入模式：通过脚本 src 的 `baseURL` 参数直接指向后端，面板以完整 URL 发起请求。
-
-### 会话 Key
-
-每个浏览器会话生成一个 UUID 并持久化在 `localStorage('openhuman-session-key')`，通过 `X-Hermes-Session-Key` 请求头传给后端，用于支持跨对话的长期记忆。
+- 无状态多轮：对话上下文完全由前端 `messages` 数组承载，后端不保存会话，新对话即清空本地历史。
 
 ---
 
 ## 开发模式
 
-启动 Vite 开发服务器（端口 5174），同时反向代理 Hermes 后端：
+启动 Vite 开发服务器（端口 5174），同时反向代理 OpenHuman 后端：
 
 ```bash
 cd packages/openhuman
@@ -48,9 +49,9 @@ npm run dev
 
 ```ts
 proxy: {
-  '/api/hermes': {
-    target: 'http://localhost:8642',
-    rewrite: (path) => path.replace(/^\/api\/hermes/, ''),
+  '/api/openhuman': {
+    target: 'http://localhost:8080',
+    rewrite: (path) => path.replace(/^\/api\/openhuman/, ''),
   },
 }
 ```
@@ -84,7 +85,7 @@ s.src = 'http://localhost:5176/openhuman.demo.js?baseURL=http://localhost:5177'
 document.head.appendChild(s)
 ```
 
-> `baseURL` 指向 CORS 代理（5177），而非 Hermes 后端（8642）。代理由 `dev:demo` 自动启动。
+> `baseURL` 指向 CORS 代理（5177），而非 OpenHuman 后端（8080）。代理由 `dev:demo` 自动启动。
 
 ### 脚本 URL 参数
 
@@ -93,7 +94,7 @@ document.head.appendChild(s)
 | `baseURL` | CORS 代理地址（不含路径） | `http://localhost:5177` |
 | `apiKey` | Bearer token，对应后端鉴权 | `sk-xxx` |
 
-两个参数均为可选。不传 `baseURL` 时面板以相对路径 `/api/hermes/v1/chat/completions` 发请求（适合同源部署）；不传 `apiKey` 时使用构建时内联的 `VITE_HERMES_API_KEY` 环境变量。
+两个参数均为可选。不传 `baseURL` 时面板以相对路径 `/api/openhuman/v1/chat/completions` 发请求（适合同源部署）；不传 `apiKey` 时使用构建时内联的 `VITE_OPENHUMAN_CORE_TOKEN` 环境变量。
 
 ### 重复注入
 
@@ -136,7 +137,7 @@ npm run dev:demo     # watch 模式 + 文件 serve（5176）+ CORS 代理（5177
 npm run build        # 生成 SPA dist/（用于部署独立页面）
 ```
 
-> **注意**：`VITE_HERMES_API_KEY` 若在构建时写入 `.env`，会被内联到 IIFE 产物中。分发脚本前确认 token 不敏感。
+> **注意**：`VITE_OPENHUMAN_CORE_TOKEN` 若在构建时写入 `.env`，会被内联到 IIFE 产物中。分发脚本前确认 token 不敏感。
 
 ---
 
@@ -162,9 +163,9 @@ define: {
 
 **现象**：请求被浏览器拦截，报 `has been blocked by CORS policy`。
 
-**原因**：书签注入后请求从第三方页面的源（如 `https://example.com`）直接打到 `localhost:8642`，浏览器执行同源策略拦截跨域请求。
+**原因**：书签注入后请求从第三方页面的源（如 `https://example.com`）直接打到 `localhost:8080`，浏览器执行同源策略拦截跨域请求。
 
-**解决**：`dev:demo` 启动的 CORS 代理（端口 5177）在转发请求时注入 `Access-Control-Allow-Origin: *` 响应头。书签的 `baseURL` 必须指向代理（5177），而非后端（8642）。
+**解决**：`dev:demo` 启动的 CORS 代理（端口 5177）在转发请求时注入 `Access-Control-Allow-Origin: *` 响应头。书签的 `baseURL` 必须指向代理（5177），而非后端（8080）。
 
 ---
 

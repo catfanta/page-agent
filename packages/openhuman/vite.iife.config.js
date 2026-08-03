@@ -32,6 +32,12 @@ export default defineConfig({
 	},
 	define: {
 		'process.env.NODE_ENV': JSON.stringify('production'),
-		'import.meta.env.VITE_HERMES_API_KEY': JSON.stringify(process.env.VITE_HERMES_API_KEY ?? ''),
+		'import.meta.env.VITE_OPENHUMAN_BASE_URL': JSON.stringify(
+			process.env.VITE_OPENHUMAN_BASE_URL ?? ''
+		),
+		'import.meta.env.VITE_OPENHUMAN_CORE_TOKEN': JSON.stringify(
+			process.env.VITE_OPENHUMAN_CORE_TOKEN ?? ''
+		),
+		'import.meta.env.VITE_OPENHUMAN_MODEL': JSON.stringify(process.env.VITE_OPENHUMAN_MODEL ?? ''),
 	},
 })

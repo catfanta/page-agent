@@ -1,17 +1,17 @@
 /**
- * Minimal CORS proxy for local Hermes development.
+ * Minimal CORS proxy for local OpenHuman development.
  *
- * Forwards requests to the Hermes backend and injects CORS headers so that
+ * Forwards requests to the OpenHuman backend and injects CORS headers so that
  * pages on foreign origins (e.g. https://rpachallenge.com) can reach the
  * local server when the panel is injected via bookmarklet.
  *
  * Usage: node cors-proxy.mjs
- * Env:   HERMES_PORT  — upstream port (default 8642)
- *        PROXY_PORT   — proxy listen port (default 5177)
+ * Env:   OPENHUMAN_PORT  — upstream port (default 8080)
+ *        PROXY_PORT      — proxy listen port (default 5177)
  */
 import http from 'http'
 
-const TARGET_PORT = parseInt(process.env.HERMES_PORT ?? '8642', 10)
+const TARGET_PORT = parseInt(process.env.OPENHUMAN_PORT ?? '8080', 10)
 const PROXY_PORT = parseInt(process.env.PROXY_PORT ?? '5177', 10)
 
 const CORS_HEADERS = {
