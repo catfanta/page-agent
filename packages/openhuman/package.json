@@ -1,5 +1,5 @@
 {
-    "name": "@page-agent/hermes",
+    "name": "@page-agent/openhuman",
     "private": false,
     "version": "1.8.0",
     "type": "module",
@@ -12,13 +12,13 @@
         }
     },
     "publishConfig": {
-        "main": "./dist/lib/hermes.js",
-        "types": "./dist/lib/hermes.d.ts",
+        "main": "./dist/lib/openhuman.js",
+        "types": "./dist/lib/openhuman.d.ts",
         "exports": {
             ".": {
-                "types": "./dist/lib/hermes.d.ts",
-                "import": "./dist/lib/hermes.js",
-                "default": "./dist/lib/hermes.js"
+                "types": "./dist/lib/openhuman.d.ts",
+                "import": "./dist/lib/openhuman.js",
+                "default": "./dist/lib/openhuman.js"
             }
         },
         "dependencies": {}

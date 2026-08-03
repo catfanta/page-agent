@@ -1,6 +1,6 @@
-# Hermes 部署指南
+# OpenHuman 部署指南
 
-本文档描述将 HermesPanel 嵌入到其他项目的方式。
+本文档描述将 OpenHumanPanel 嵌入到其他项目的方式。
 
 ---
 
@@ -10,29 +10,29 @@
 
 ### 原理
 
-`npm run build:demo` 生成一个自包含的 IIFE 脚本（`hermes.demo.js`），将其托管到静态服务器或 CDN，在目标页面加一个 `<script>` 标签即可。脚本加载时自动将 HermesPanel 挂载到 `document.body`。
+`npm run build:demo` 生成一个自包含的 IIFE 脚本（`openhuman.demo.js`），将其托管到静态服务器或 CDN，在目标页面加一个 `<script>` 标签即可。脚本加载时自动将 OpenHumanPanel 挂载到 `document.body`。
 
 ### 步骤
 
 **1. 构建 IIFE 产物**
 
 ```bash
-cd packages/hermes
+cd packages/openhuman
 
 # 可选：在 .env.local 中预设 API key，避免在 URL 中明文传递
 echo "VITE_HERMES_API_KEY=your-secret-key" > .env.local
 
 npm run build:demo
-# 输出：dist/iife/hermes.demo.js
+# 输出：dist/iife/openhuman.demo.js
 ```
 
 **2. 托管静态文件**
 
-将 `dist/iife/hermes.demo.js` 上传到静态托管服务，例如：
+将 `dist/iife/openhuman.demo.js` 上传到静态托管服务，例如：
 
 ```bash
 # 示例：上传到 OSS / S3 / Cloudflare R2
-# 结果 URL 类似：https://cdn.example.com/hermes.demo.js
+# 结果 URL 类似：https://cdn.example.com/openhuman.demo.js
 ```
 
 本地开发时可直接用 `serve`：
@@ -45,10 +45,10 @@ npx serve dist/iife -p 5176
 
 ```html
 <!-- 生产环境：指向 CDN 地址和实际后端 -->
-<script src="https://cdn.example.com/hermes.demo.js?baseURL=https://hermes.example.com"></script>
+<script src="https://cdn.example.com/openhuman.demo.js?baseURL=https://hermes.example.com"></script>
 
 <!-- 开发环境：本地文件服务 + CORS 代理 -->
-<script src="http://localhost:5176/hermes.demo.js?baseURL=http://localhost:5177"></script>
+<script src="http://localhost:5176/openhuman.demo.js?baseURL=http://localhost:5177"></script>
 ```
 
 脚本支持以下 URL 参数：
@@ -64,7 +64,7 @@ npx serve dist/iife -p 5176
 
 ```javascript
 // 卸载面板
-window.__hermes.unmount()
+window.__openhuman.unmount()
 
 // 重新加载脚本即重新挂载（自动清理旧实例）
 ```
@@ -109,16 +109,16 @@ location /hermes/ {
 
 ## 方式三：作为 React 组件库引入
 
-适用场景：目标项目是 React 应用，将 HermesPanel 作为标准 npm 包或本地包引入，像普通组件一样使用。
+适用场景：目标项目是 React 应用，将 OpenHumanPanel 作为标准 npm 包或本地包引入，像普通组件一样使用。
 
 ### 步骤
 
 **1. 构建库产物**
 
 ```bash
-cd packages/hermes
+cd packages/openhuman
 npm run build:lib
-# 输出：dist/lib/hermes.js 和 dist/lib/hermes.d.ts
+# 输出：dist/lib/openhuman.js 和 dist/lib/openhuman.d.ts
 ```
 
 **2. 选择引入方式**
@@ -130,7 +130,7 @@ npm run build:lib
 **方案 A：发布到 npm 后安装**
 
 ```bash
-# 在 packages/hermes 下执行
+# 在 packages/openhuman 下执行
 # prepublishOnly 会自动将 package.json 中的 exports 从 src/ 切换到 dist/lib/，再执行构建
 npm publish
 ```
@@ -138,7 +138,7 @@ npm publish
 消费方安装：
 
 ```bash
-npm install @page-agent/hermes
+npm install @page-agent/openhuman
 ```
 
 ---
@@ -148,19 +148,19 @@ npm install @page-agent/hermes
 适合在真实项目中测试本地修改，或在无法访问 npm 的环境中分发。
 
 ```bash
-# 在 packages/hermes 下执行
+# 在 packages/openhuman 下执行
 # prepack 钩子会自动完成：manifest 重写（exports 切换到 dist/）+ lib 构建
 npm pack
-# 输出：page-agent-hermes-1.8.0.tgz（文件名随版本号变化）
+# 输出：page-agent-openhuman-1.8.0.tgz（文件名随版本号变化）
 ```
 
 > **注意**：`prepack` 会将内部依赖（`@page-agent/*`）从 tarball 的 `dependencies` 中移除，
-> 因为它们已被打包进 `dist/lib/hermes.js`，消费方无需单独安装。
+> 因为它们已被打包进 `dist/lib/openhuman.js`，消费方无需单独安装。
 
 在消费方项目中安装：
 
 ```bash
-npm install /path/to/page-agent-hermes-1.8.0.tgz
+npm install /path/to/page-agent-openhuman-1.8.0.tgz
 ```
 
 ---
@@ -172,7 +172,7 @@ npm install /path/to/page-agent-hermes-1.8.0.tgz
 ```json
 {
     "dependencies": {
-        "@page-agent/hermes": "*"
+        "@page-agent/openhuman": "*"
     }
 }
 ```
@@ -184,13 +184,13 @@ monorepo 的 source-first 机制会直接解析到 `src/index.ts`，无需任何
 **3. 在 React 应用中使用**
 
 ```tsx
-import { HermesPanel } from '@page-agent/hermes'
+import { OpenHumanPanel } from '@page-agent/openhuman'
 
 export function App() {
     return (
         <div>
             {/* 你的页面内容 */}
-            <HermesPanel
+            <OpenHumanPanel
                 baseURL="https://hermes.example.com"
                 apiKey="your-key"
             />
@@ -199,7 +199,7 @@ export function App() {
 }
 ```
 
-`HermesPanel` 接受以下 props：
+`OpenHumanPanel` 接受以下 props：
 
 | Prop | 类型 | 说明 |
 |------|------|------|
@@ -210,7 +210,7 @@ export function App() {
 
 ### 样式说明
 
-库构建启用了 `cssInjectedByJsPlugin`，所有样式会被打包进 `hermes.js`。消费方**不需要**单独引入任何 CSS 文件。
+库构建启用了 `cssInjectedByJsPlugin`，所有样式会被打包进 `openhuman.js`。消费方**不需要**单独引入任何 CSS 文件。
 
 ---
 

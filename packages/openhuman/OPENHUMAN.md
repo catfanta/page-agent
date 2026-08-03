@@ -1,4 +1,4 @@
-# @page-agent/hermes
+# @page-agent/openhuman
 
 浮层对话面板，可注入任意网页，与 Hermes Agent 后端通信，实现基于上下文的浏览器自动化对话。
 
@@ -20,7 +20,7 @@
 
 ```
 浏览器页面
-└── HermesPanel（React 浮层）
+└── OpenHumanPanel（React 浮层）
         │  POST /v1/chat/completions（SSE）
         ▼
 Hermes Agent 后端（默认 http://localhost:8642）
@@ -31,7 +31,7 @@ Hermes Agent 后端（默认 http://localhost:8642）
 
 ### 会话 Key
 
-每个浏览器会话生成一个 UUID 并持久化在 `localStorage('hermes-session-key')`，通过 `X-Hermes-Session-Key` 请求头传给后端，用于支持跨对话的长期记忆。
+每个浏览器会话生成一个 UUID 并持久化在 `localStorage('openhuman-session-key')`，通过 `X-Hermes-Session-Key` 请求头传给后端，用于支持跨对话的长期记忆。
 
 ---
 
@@ -40,7 +40,7 @@ Hermes Agent 后端（默认 http://localhost:8642）
 启动 Vite 开发服务器（端口 5174），同时反向代理 Hermes 后端：
 
 ```bash
-cd packages/hermes
+cd packages/openhuman
 npm run dev
 ```
 
@@ -64,23 +64,23 @@ proxy: {
 ### 启动本地文件服务
 
 ```bash
-cd packages/hermes
+cd packages/openhuman
 npm run dev:demo     # 构建 IIFE 并在 http://localhost:5176 提供文件
 ```
 
 ### 书签脚本（Bookmarklet）
 
-将以下内容存为浏览器书签，点击即可在任意页面注入 Hermes 面板：
+将以下内容存为浏览器书签，点击即可在任意页面注入 OpenHuman 面板：
 
 ```
-javascript:(function(){var s=document.createElement('script');s.src='http://localhost:5176/hermes.demo.js?t='+Math.random()+'&baseURL=http://localhost:5177';document.head.appendChild(s);})();
+javascript:(function(){var s=document.createElement('script');s.src='http://localhost:5176/openhuman.demo.js?t='+Math.random()+'&baseURL=http://localhost:5177';document.head.appendChild(s);})();
 ```
 
 或在 DevTools Console 中直接执行：
 
 ```javascript
 var s = document.createElement('script')
-s.src = 'http://localhost:5176/hermes.demo.js?baseURL=http://localhost:5177'
+s.src = 'http://localhost:5176/openhuman.demo.js?baseURL=http://localhost:5177'
 document.head.appendChild(s)
 ```
 
@@ -105,17 +105,17 @@ document.head.appendChild(s)
 
 | 变量 | 说明 |
 |------|------|
-| `window.__hermes` | Hermes 面板控制对象 |
-| `window.__hermes.unmount()` | 卸载面板并从 DOM 中移除 |
+| `window.__openhuman` | OpenHuman 面板控制对象 |
+| `window.__openhuman.unmount()` | 卸载面板并从 DOM 中移除 |
 
 ---
 
 ## 文件结构
 
 ```
-packages/hermes/
+packages/openhuman/
 ├── src/
-│   ├── HermesPanel.tsx      # 对话面板 React 组件
+│   ├── OpenHumanPanel.tsx      # 对话面板 React 组件
 │   ├── demo.ts              # 浏览器注入入口（IIFE）
 │   ├── main.tsx             # SPA 开发模式入口
 │   ├── index.css            # SPA 全局样式（Tailwind）
@@ -131,7 +131,7 @@ packages/hermes/
 ## 构建
 
 ```bash
-npm run build:demo   # 生成 dist/iife/hermes.demo.js
+npm run build:demo   # 生成 dist/iife/openhuman.demo.js
 npm run dev:demo     # watch 模式 + 文件 serve（5176）+ CORS 代理（5177）
 npm run build        # 生成 SPA dist/（用于部署独立页面）
 ```
@@ -176,7 +176,7 @@ define: {
 
 1. **后端做 Origin 校验**：代理把浏览器原始的 `Origin: https://example.com` 头转发给了后端，后端拒绝非预期来源。CORS 代理已在转发时剥离 `origin` 和 `referer` 头。
 
-2. **API key 未内联到 IIFE 产物**：IIFE 构建默认只加载项目根目录的 `.env`，不加载 `packages/hermes/.env.local`，导致 `Authorization` 头为空。已在 `vite.iife.config.js` 中补充加载 `.env.local`（优先级高于根 `.env`）：
+2. **API key 未内联到 IIFE 产物**：IIFE 构建默认只加载项目根目录的 `.env`，不加载 `packages/openhuman/.env.local`，导致 `Authorization` 头为空。已在 `vite.iife.config.js` 中补充加载 `.env.local`（优先级高于根 `.env`）：
 
    ```js
    dotenvConfig({ path: resolve(__dirname, '.env.local'), quiet: true })
@@ -205,16 +205,16 @@ lsof -ti:5177 | xargs kill
 
 **现象**：在某个页面多次点击书签后，面板不再出现或功能异常，但在新页面可以正常注入。
 
-**原因**：上一次注入留下的 `window.__hermes` 实例处于损坏状态，`unmount()` 抛出异常中断了新实例的挂载流程；或旧的 `#__hermes-root` 容器残留在 DOM 中。
+**原因**：上一次注入留下的 `window.__openhuman` 实例处于损坏状态，`unmount()` 抛出异常中断了新实例的挂载流程；或旧的 `#__openhuman-root` 容器残留在 DOM 中。
 
 **解决**：`demo.ts` 已做两层防护：
 
 1. `unmount()` 用 try-catch 包裹，失败时强制置 `undefined` 继续挂载。
-2. 挂载前主动移除页面上残留的 `#__hermes-root` 元素。
+2. 挂载前主动移除页面上残留的 `#__openhuman-root` 元素。
 
 若问题仍存在，可在 DevTools Console 手动清理后重试：
 
 ```javascript
-document.getElementById('__hermes-root')?.remove()
-window.__hermes = undefined
+document.getElementById('__openhuman-root')?.remove()
+window.__openhuman = undefined
 ```

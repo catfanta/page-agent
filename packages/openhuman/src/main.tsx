@@ -1,12 +1,12 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { HermesPanel } from './HermesPanel'
+import { OpenHumanPanel } from './OpenHumanPanel'
 
 import './index.css'
 
 createRoot(document.getElementById('root')!).render(
 	<React.StrictMode>
-		<HermesPanel />
+		<OpenHumanPanel />
 	</React.StrictMode>
 )

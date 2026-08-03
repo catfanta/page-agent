@@ -1,32 +1,32 @@
 /**
- * IIFE demo entry - injects HermesPanel into any webpage via bookmarklet or script tag.
- * Exposes window.__hermes for manual control in DevTools.
+ * IIFE demo entry - injects OpenHumanPanel into any webpage via bookmarklet or script tag.
+ * Exposes window.__openhuman for manual control in DevTools.
  *
  * Bookmarklet:
- *   javascript:(function(){var s=document.createElement('script');s.src='http://localhost:5176/hermes.demo.js?t='+Math.random()+'&baseURL=http://localhost:8642';document.head.appendChild(s);})();
+ *   javascript:(function(){var s=document.createElement('script');s.src='http://localhost:5176/openhuman.demo.js?t='+Math.random()+'&baseURL=http://localhost:8642';document.head.appendChild(s);})();
  *
  * URL params (read from script src):
- *   baseURL  — Hermes server base URL, e.g. http://localhost:8642
- *   apiKey   — Bearer token for the Hermes server
+ *   baseURL  — OpenHuman server base URL, e.g. http://localhost:8642
+ *   apiKey   — Bearer token for the OpenHuman server
  */
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { HermesPanel } from './HermesPanel'
+import { OpenHumanPanel } from './OpenHumanPanel'
 
 declare global {
 	interface Window {
-		__hermes: { unmount: () => void } | undefined
+		__openhuman: { unmount: () => void } | undefined
 	}
 }
 
 // Clean up existing instance to allow re-injection
-if (window.__hermes) {
+if (window.__openhuman) {
 	try {
-		window.__hermes.unmount()
+		window.__openhuman.unmount()
 	} catch {
 		// Previous instance may already be in a broken state; proceed with fresh mount
-		window.__hermes = undefined
+		window.__openhuman = undefined
 	}
 }
 
@@ -37,10 +37,10 @@ const baseURL = scriptParams?.get('baseURL') ?? ''
 const apiKey = scriptParams?.get('apiKey') ?? ''
 
 // Remove any leftover container from a previous broken injection
-document.getElementById('__hermes-root')?.remove()
+document.getElementById('__openhuman-root')?.remove()
 
 const container = document.createElement('div')
-container.id = '__hermes-root'
+container.id = '__openhuman-root'
 document.body.appendChild(container)
 
 const root = createRoot(container)
@@ -48,17 +48,17 @@ const root = createRoot(container)
 const unmount = () => {
 	root.unmount()
 	container.remove()
-	window.__hermes = undefined
+	window.__openhuman = undefined
 }
 
 root.render(
-	React.createElement(HermesPanel, {
+	React.createElement(OpenHumanPanel, {
 		baseURL: baseURL || undefined,
 		apiKey: apiKey || undefined,
 		onClose: unmount,
 	})
 )
 
-window.__hermes = { unmount }
+window.__openhuman = { unmount }
 
-console.log('🪄 Hermes injected.\n' + '  window.__hermes.unmount() — 卸载 Hermes 面板')
+console.log('🪄 OpenHuman injected.\n' + '  window.__openhuman.unmount() — 卸载 OpenHuman 面板')

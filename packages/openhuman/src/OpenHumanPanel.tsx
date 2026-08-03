@@ -29,7 +29,7 @@ interface HealthState {
 	detail: DetailedHealth | null
 }
 
-interface HermesCapabilities {
+interface OpenHumanCapabilities {
 	object: string
 	platform: string
 	model: string
@@ -49,21 +49,21 @@ interface RecordingDeps {
 	replayer: Replayer
 }
 
-interface HermesPanelProps {
-	/** Hermes server base URL, e.g. 'http://localhost:8642'. Falls back to vite proxy when omitted. */
+interface OpenHumanPanelProps {
+	/** OpenHuman server base URL, e.g. 'http://localhost:8642'. Falls back to vite proxy when omitted. */
 	baseURL?: string
-	/** Bearer token for the Hermes server. Falls back to VITE_HERMES_API_KEY env var when omitted. */
+	/** Bearer token for the OpenHuman server. Falls back to VITE_HERMES_API_KEY env var when omitted. */
 	apiKey?: string
 	/** Called when the user closes the panel. */
 	onClose?: () => void
 	/**
-	 * External recording deps. When omitted, HermesPanel creates its own
+	 * External recording deps. When omitted, OpenHumanPanel creates its own
 	 * PageController + Recorder + Replayer automatically.
 	 */
 	recording?: RecordingDeps
 }
 
-function buildHermesEndpoint(baseURL: string | undefined, path: string): string {
+function buildEndpoint(baseURL: string | undefined, path: string): string {
 	return baseURL ? `${baseURL}${path}` : `/api/hermes${path}`
 }
 
@@ -77,10 +77,10 @@ function messageItemClass(msg: Message): string {
 // localStorage may throw in sandboxed iframes — fall back to an in-memory UUID
 function getSessionKey(): string {
 	try {
-		const stored = localStorage.getItem('hermes-session-key')
+		const stored = localStorage.getItem('openhuman-session-key')
 		if (stored) return stored
 		const key = crypto.randomUUID()
-		localStorage.setItem('hermes-session-key', key)
+		localStorage.setItem('openhuman-session-key', key)
 		return key
 	} catch {
 		return crypto.randomUUID()
@@ -159,7 +159,7 @@ const STOP_BUTTON_STYLE: React.CSSProperties = {
 	color: 'rgb(255,100,100)',
 }
 
-export const HermesPanel: React.FC<HermesPanelProps> = ({
+export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	baseURL,
 	apiKey: propApiKey,
 	onClose,
@@ -171,7 +171,7 @@ export const HermesPanel: React.FC<HermesPanelProps> = ({
 	const [visible, setVisible] = useState(false)
 	const [isRecording, setIsRecording] = useState(false)
 	const [isRecListExpanded, setIsRecListExpanded] = useState(false)
-	const [capabilities, setCapabilities] = useState<HermesCapabilities | null>(null)
+	const [capabilities, setCapabilities] = useState<OpenHumanCapabilities | null>(null)
 	const [health, setHealth] = useState<HealthState>({ status: null, detail: null })
 	// Internal deps created when recording prop is not provided
 	const [internalDeps, setInternalDeps] = useState<RecordingDeps | null>(null)
@@ -197,16 +197,16 @@ export const HermesPanel: React.FC<HermesPanelProps> = ({
 
 	useEffect(() => {
 		// When no explicit baseURL, route through the Vite proxy prefix so /health
-		// hits the Hermes server rather than the dev server itself.
+		// hits the OpenHuman server rather than the dev server itself.
 		const headers: Record<string, string> = {}
 		if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
 		const check = async () => {
 			try {
-				const r = await fetch(buildHermesEndpoint(baseURL, '/health'), { headers })
+				const r = await fetch(buildEndpoint(baseURL, '/health'), { headers })
 				if (!r.ok) throw new Error(`HTTP ${r.status}`)
 				setHealth((prev) => (prev.status === 'ok' ? prev : { ...prev, status: 'ok' }))
-				fetch(buildHermesEndpoint(baseURL, '/health/detailed'), { headers })
+				fetch(buildEndpoint(baseURL, '/health/detailed'), { headers })
 					.then((dr) => (dr.ok ? dr.json() : null))
 					.then((d: DetailedHealth | null) => {
 						setHealth((prev) =>
@@ -231,9 +231,9 @@ export const HermesPanel: React.FC<HermesPanelProps> = ({
 		const headers: Record<string, string> = {}
 		if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
-		fetch(buildHermesEndpoint(baseURL, '/v1/capabilities'), { headers })
+		fetch(buildEndpoint(baseURL, '/v1/capabilities'), { headers })
 			.then((r) => (r.ok ? r.json() : null))
-			.then((data: HermesCapabilities | null) => {
+			.then((data: OpenHumanCapabilities | null) => {
 				if (data?.object === 'hermes.api_server.capabilities') setCapabilities(data)
 			})
 			.catch(() => {
@@ -316,7 +316,7 @@ export const HermesPanel: React.FC<HermesPanelProps> = ({
 					}
 					if (effectiveApiKey) headers.Authorization = `Bearer ${effectiveApiKey}`
 
-					const resp = await fetch(buildHermesEndpoint(baseURL, '/v1/chat/completions'), {
+					const resp = await fetch(buildEndpoint(baseURL, '/v1/chat/completions'), {
 						method: 'POST',
 						headers,
 						body: JSON.stringify({
@@ -369,7 +369,7 @@ export const HermesPanel: React.FC<HermesPanelProps> = ({
 		setIsExpanded(false)
 		const key = crypto.randomUUID()
 		try {
-			localStorage.setItem('hermes-session-key', key)
+			localStorage.setItem('openhuman-session-key', key)
 		} catch {
 			// sandboxed iframe — key lives in memory only
 		}
@@ -455,7 +455,7 @@ export const HermesPanel: React.FC<HermesPanelProps> = ({
 						<div className={styles.historyItem}>
 							<div className={styles.historyContent}>
 								<span className={styles.statusIcon}>🧠</span>
-								<span>向 Hermes 发送指令，开始浏览器自动化任务</span>
+								<span>向 OpenHuman 发送指令，开始浏览器自动化任务</span>
 							</div>
 						</div>
 					) : (
@@ -486,7 +486,7 @@ export const HermesPanel: React.FC<HermesPanelProps> = ({
 									: styles.completed,
 						].join(' ')}
 					/>
-					<div className={styles.statusText}>{isLoading ? '正在思考...' : 'Hermes Agent'}</div>
+					<div className={styles.statusText}>{isLoading ? '正在思考...' : 'OpenHuman Agent'}</div>
 				</div>
 				<div className={styles.controls}>
 					{effectiveDeps && (
@@ -578,7 +578,7 @@ export const HermesPanel: React.FC<HermesPanelProps> = ({
 						className={styles.taskInput}
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
-						placeholder="告诉 Hermes 做什么..."
+						placeholder="告诉 OpenHuman 做什么..."
 						maxLength={1000}
 						disabled={isLoading}
 					/>

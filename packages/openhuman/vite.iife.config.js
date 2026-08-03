@@ -18,8 +18,8 @@ export default defineConfig({
 	build: {
 		lib: {
 			entry: resolve(__dirname, 'src/demo.ts'),
-			name: 'HermesPanel',
-			fileName: () => 'hermes.demo.js',
+			name: 'OpenHumanPanel',
+			fileName: () => 'openhuman.demo.js',
 			formats: ['iife'],
 		},
 		outDir: resolve(__dirname, 'dist', 'iife'),
