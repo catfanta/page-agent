@@ -41,6 +41,13 @@ export class Recorder {
 	/** In-flight async event handler promises — needed to drain them before stop(). */
 	private readonly inFlight = new Set<Promise<void>>()
 
+	/**
+	 * Pending re-index timers scheduled by pushStep(). Tracked so stop() can
+	 * cancel them; otherwise the last interaction's timer fires after stop() and
+	 * updateTree() redraws the highlight boxes we just cleaned up.
+	 */
+	private readonly reindexTimers = new Set<ReturnType<typeof setTimeout>>()
+
 	constructor(pageController: PageController, config: RecorderConfig = {}) {
 		this.pageController = pageController
 		this.config = {
@@ -79,7 +86,11 @@ export class Recorder {
 			clearTimeout(this.scrollDebounceTimer)
 			this.scrollDebounceTimer = null
 		}
-		this.pageController.cleanUpHighlights()
+		// Cancel any pending re-index timers so a late updateTree() doesn't
+		// redraw the highlight boxes after we clean them up below.
+		for (const timer of this.reindexTimers) clearTimeout(timer)
+		this.reindexTimers.clear()
+		void this.pageController.cleanUpHighlights()
 	}
 
 	/**
@@ -135,6 +146,7 @@ export class Recorder {
 	private doHandleClick = async (e: Event): Promise<void> => {
 		if (this.agentActing) return
 		if (!(e.target instanceof HTMLElement)) return
+		if (this.isIgnored(e.target)) return
 
 		const resolved = await this.resolveElement(e.target)
 		if (!resolved) return
@@ -150,6 +162,7 @@ export class Recorder {
 	private doHandleChange = async (e: Event): Promise<void> => {
 		if (this.agentActing) return
 		if (!(e.target instanceof HTMLElement)) return
+		if (this.isIgnored(e.target)) return
 
 		const resolved = await this.resolveElement(e.target)
 		if (!resolved) return
@@ -217,6 +230,15 @@ export class Recorder {
 
 	// ─── Helpers ─────────────────────────────────────────────────────────────
 
+	/**
+	 * Whether an element lives inside UI chrome that must never be recorded
+	 * (the agent panel and its overlays). Mirrors the DOM-extraction exclusion
+	 * markers so recording stays consistent with what gets indexed.
+	 */
+	private isIgnored(el: HTMLElement): boolean {
+		return el.closest('[data-page-agent-ignore="true"],[data-browser-use-ignore="true"]') !== null
+	}
+
 	private getElementHint(el: HTMLElement): string {
 		return (
 			el.getAttribute('aria-label') ||
@@ -245,7 +267,12 @@ export class Recorder {
 		}
 		this.steps.push(step)
 		this.config.onStep(step)
-		// Re-index after click effects settle (React re-renders, async DOM updates)
-		setTimeout(() => this.pageController.updateTree(), 500)
+		// Re-index after click effects settle (React re-renders, async DOM updates).
+		// Tracked so stop() can cancel a pending timer before cleaning highlights.
+		const timer = setTimeout(() => {
+			this.reindexTimers.delete(timer)
+			void this.pageController.updateTree()
+		}, 500)
+		this.reindexTimers.add(timer)
 	}
 }

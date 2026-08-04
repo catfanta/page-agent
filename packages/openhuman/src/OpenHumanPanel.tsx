@@ -1,5 +1,11 @@
 import { PageController } from '@page-agent/page-controller'
-import { Recorder, Replayer, saveRecording } from '@page-agent/recorder'
+import {
+	Recorder,
+	Replayer,
+	getRecording,
+	listRecordings,
+	saveRecording,
+} from '@page-agent/recorder'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { RecordingTab } from './RecordingTab'
@@ -49,6 +55,13 @@ interface OpenHumanPanelProps {
 	 * PageController + Recorder + Replayer automatically.
 	 */
 	recording?: RecordingDeps
+	/**
+	 * Initial demo-mode state. When on, the recording/replay commands
+	 * (开始录制 / 结束录制 / 回放 [name] / 回放结束) are intercepted locally and
+	 * never reach the LLM/server. Falls back to VITE_OPENHUMAN_DEMO_MODE when
+	 * omitted. Users can still toggle it at runtime via the 🎬 button.
+	 */
+	demoMode?: boolean
 }
 
 function buildEndpoint(baseURL: string | undefined, path: string): string {
@@ -213,6 +226,7 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	model: propModel,
 	onClose,
 	recording,
+	demoMode: propDemoMode,
 }) => {
 	const [messages, setMessages] = useState<Message[]>([])
 	const [input, setInput] = useState('')
@@ -220,6 +234,12 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	const [visible, setVisible] = useState(false)
 	const [isRecording, setIsRecording] = useState(false)
 	const [isRecListExpanded, setIsRecListExpanded] = useState(false)
+	// Demo mode: when on, the recording commands (开始录制 / 结束录制 /
+	// 回放 [name] / 回放结束) are intercepted locally and never reach the
+	// LLM/server. Initial value: explicit prop wins, else VITE_OPENHUMAN_DEMO_MODE.
+	const [isDemoMode, setIsDemoMode] = useState(
+		propDemoMode ?? ['true', '1'].includes(import.meta.env.VITE_OPENHUMAN_DEMO_MODE ?? '')
+	)
 	const [health, setHealth] = useState<HealthState>({ status: null, detail: null })
 	// Internal deps created when recording prop is not provided
 	const [internalDeps, setInternalDeps] = useState<RecordingDeps | null>(null)
@@ -325,13 +345,133 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 		// internalDeps is set once in the effect above
 	}, [effectiveDeps])
 
-	const submit = useCallback(
-		(e: React.SyntheticEvent) => {
-			e.preventDefault()
-			effectiveDeps?.recorder.setAgentActing(false)
-			const text = input.trim()
-			if (!text || isLoading) return
+	// Begin a recording session. Shared by the recording button and the
+	// "开始录制" demo command. No-op if a session is already active.
+	const startRecording = useCallback(() => {
+		if (!effectiveDeps || isRecording) return
+		const { recorder } = effectiveDeps
+		sessionStartIndexRef.current = recorder.steps.length
+		recorder.start()
+		recordingTabRef.current?.setRecordingState(true)
+		setIsRecording(true)
+	}, [isRecording, effectiveDeps])
 
+	// End the current recording session and persist it. Shared by the recording
+	// button and the "结束录制" demo command. Returns the number of steps saved
+	// (0 means nothing was recorded / no active session).
+	const stopRecording = useCallback(async (): Promise<number> => {
+		if (!effectiveDeps || !isRecording) return 0
+		const { recorder } = effectiveDeps
+		// Blur the active element so its change event fires before flush() is called.
+		// Some browsers defer blur/change until after click, leaving inFlight empty.
+		const active = document.activeElement
+		if (active instanceof HTMLElement && active !== document.body) {
+			active.blur()
+		}
+		await recorder.flush()
+		recorder.stop()
+		recorder.setAgentActing(false)
+		const sessionSteps = recorder.steps.slice(sessionStartIndexRef.current)
+		recordingTabRef.current?.setRecordingState(false)
+		setIsRecording(false)
+		if (sessionSteps.length > 0) {
+			await saveRecording({
+				name: `Recording ${new Date().toLocaleString()}`,
+				steps: sessionSteps,
+				startUrl: window.location.href,
+			})
+			await recordingTabRef.current?.renderHistory()
+			// Auto-expand the list panel so user sees the saved recording
+			setIsExpanded(false)
+			setIsRecListExpanded(true)
+		}
+		return sessionSteps.length
+	}, [isRecording, effectiveDeps])
+
+	// Append a user command echo plus an assistant reply, mirroring the chat UI
+	// so demo commands look like a normal exchange without hitting the server.
+	const appendExchange = useCallback((command: string, reply: string) => {
+		setMessages((prev) => [
+			...prev,
+			{ id: crypto.randomUUID(), role: 'user', content: command },
+			{ id: crypto.randomUUID(), role: 'assistant', content: reply },
+		])
+		setIsExpanded(true)
+	}, [])
+
+	// Demo commands intercepted before the LLM/server. Recognized commands run
+	// the recorder/replayer directly and return true; anything else returns false
+	// so submit() falls through to the normal chat request (LLM).
+	const handleDemoCommand = useCallback(
+		async (text: string): Promise<boolean> => {
+			if (!isDemoMode || !effectiveDeps) return false
+
+			if (text === '开始录制') {
+				startRecording()
+				appendExchange(text, isRecording ? '已经在录制中了。' : '✅ 已开始录制，请在页面上操作。')
+				return true
+			}
+
+			if (text === '结束录制') {
+				if (!isRecording) {
+					appendExchange(text, '当前没有正在进行的录制。')
+					return true
+				}
+				const count = await stopRecording()
+				appendExchange(
+					text,
+					count > 0
+						? `✅ 已结束录制，共保存 ${count} 步操作。`
+						: '⚠️ 已结束录制，但没有捕获到任何操作。'
+				)
+				return true
+			}
+
+			if (text === '回放结束') {
+				effectiveDeps.replayer.abort()
+				appendExchange(text, '⏹️ 已停止回放。')
+				return true
+			}
+
+			// "回放" replays the latest recording; "回放 <name>" / "回放<name>"
+			// replays the newest recording whose name matches (exact match
+			// preferred, else substring). A separating space is optional since
+			// Chinese input rarely includes one.
+			if (text.startsWith('回放') && !text.startsWith('回放结束')) {
+				const query = text.slice('回放'.length).trim()
+				const recordings = await listRecordings() // newest first
+				const target = query
+					? (recordings.find((r) => r.name === query) ??
+						recordings.find((r) => r.name.includes(query)))
+					: recordings[0]
+				if (!target) {
+					appendExchange(
+						text,
+						query ? `⚠️ 没有找到名为「${query}」的录制。` : '⚠️ 没有可回放的录制。'
+					)
+					return true
+				}
+				// getRecording ensures we replay the freshest persisted steps.
+				const full = await getRecording(target.id)
+				const steps = full?.steps ?? target.steps
+				if (steps.length === 0) {
+					appendExchange(text, `⚠️ 录制「${target.name}」没有可回放的步骤。`)
+					return true
+				}
+				appendExchange(text, `▶️ 开始回放「${target.name}」，共 ${steps.length} 步…`)
+				await effectiveDeps.replayer.replay(steps)
+				return true
+			}
+
+			return false
+		},
+		[isDemoMode, effectiveDeps, isRecording, startRecording, stopRecording, appendExchange]
+	)
+
+	// Send a message to the OpenHuman server (the normal LLM path). Echoes the
+	// user message, opens the SSE stream, and posts the chat request.
+	const sendToServer = useCallback(
+		(text: string) => {
 			const assistantId = crypto.randomUUID()
 
 			setMessages((prev) => [
@@ -339,7 +479,6 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 				{ id: crypto.randomUUID(), role: 'user', content: text },
 				{ id: assistantId, role: 'assistant', content: '', pending: true },
 			])
-			setInput('')
 			setIsExpanded(true)
 
 			const controller = new AbortController()
@@ -409,7 +548,30 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 
 			void sendRequest()
 		},
-		[input, isLoading, baseURL, effectiveApiKey, effectiveDeps, effectiveModel]
+		[baseURL, effectiveApiKey, effectiveModel]
+	)
+
+	const submit = useCallback(
+		(e: React.SyntheticEvent) => {
+			e.preventDefault()
+			effectiveDeps?.recorder.setAgentActing(false)
+			const text = input.trim()
+			if (!text || isLoading) return
+			setInput('')
+
+			// Demo mode: intercept recognized commands before the LLM/server.
+			// Unrecognized input falls through to the normal chat request.
+			if (isDemoMode) {
+				void (async () => {
+					const handled = await handleDemoCommand(text)
+					if (!handled) sendToServer(text)
+				})()
+				return
+			}
+
+			sendToServer(text)
+		},
+		[input, isLoading, effectiveDeps, isDemoMode, handleDemoCommand, sendToServer]
 	)
 
 	const stop = useCallback(() => abortRef.current?.abort(), [])
@@ -425,39 +587,9 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	}, [])
 
 	const toggleRecording = useCallback(async () => {
-		if (!effectiveDeps) return
-		const { recorder } = effectiveDeps
-		if (!isRecording) {
-			sessionStartIndexRef.current = recorder.steps.length
-			recorder.start()
-			recordingTabRef.current?.setRecordingState(true)
-			setIsRecording(true)
-		} else {
-			// Blur the active element so its change event fires before flush() is called.
-			// Some browsers defer blur/change until after click, leaving inFlight empty.
-			const active = document.activeElement
-			if (active instanceof HTMLElement && active !== document.body) {
-				active.blur()
-			}
-			await recorder.flush()
-			recorder.stop()
-			recorder.setAgentActing(false)
-			const sessionSteps = recorder.steps.slice(sessionStartIndexRef.current)
-			recordingTabRef.current?.setRecordingState(false)
-			setIsRecording(false)
-			if (sessionSteps.length > 0) {
-				await saveRecording({
-					name: `Recording ${new Date().toLocaleString()}`,
-					steps: sessionSteps,
-					startUrl: window.location.href,
-				})
-				await recordingTabRef.current?.renderHistory()
-				// Auto-expand the list panel so user sees the saved recording
-				setIsExpanded(false)
-				setIsRecListExpanded(true)
-			}
-		}
-	}, [isRecording, effectiveDeps])
+		if (!isRecording) startRecording()
+		else await stopRecording()
+	}, [isRecording, startRecording, stopRecording])
 
 	const toggleRecList = useCallback(() => {
 		setIsRecListExpanded((v) => {
@@ -476,6 +608,9 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 	return (
 		<div
 			data-openhuman-panel=""
+			// Exclude the panel from DOM extraction, highlighting, and recording —
+			// interactions with the panel chrome must never be indexed or recorded.
+			data-page-agent-ignore="true"
 			className={[
 				styles.wrapper,
 				isExpanded ? styles.expanded : '',
@@ -528,6 +663,22 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 					<div className={styles.statusText}>{isLoading ? '正在思考...' : 'OpenHuman Agent'}</div>
 				</div>
 				<div className={styles.controls}>
+					{effectiveDeps && (
+						<button
+							className={[styles.controlButton, isDemoMode ? styles.recListBtnActive : ''].join(
+								' '
+							)}
+							title={isDemoMode ? '演示模式：开（命令不走 LLM）' : '演示模式：关'}
+							onPointerDown={handleButtonPointerDown}
+							onClick={(e) => {
+								e.stopPropagation()
+								setIsDemoMode((v) => !v)
+								effectiveDeps?.recorder.setAgentActing(false)
+							}}
+						>
+							🎬
+						</button>
+					)}
 					{effectiveDeps && (
 						<button
 							className={[
@@ -617,7 +768,11 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 						className={styles.taskInput}
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
-						placeholder="告诉 OpenHuman 做什么..."
+						placeholder={
+							isDemoMode
+								? '演示模式：开始录制 / 结束录制 / 回放 [名称] / 回放结束'
+								: '告诉 OpenHuman 做什么...'
+						}
 						maxLength={1000}
 						disabled={isLoading}
 					/>
