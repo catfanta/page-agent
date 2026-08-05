@@ -15,6 +15,13 @@ import { useState } from 'react'
 
 import { OpenHumanPanel } from './OpenHumanPanel'
 import SoldierViewer from './SoldierViewer'
+import { useSoldierSocket } from './hooks/useWebSocket'
+
+/**
+ * Default connection id, matching soldier_mcp_server.py's SOLDIER_DEFAULT_USER_ID
+ * so a fresh install connects to the right browser without extra config.
+ */
+const DEFAULT_SOLDIER_USER_ID = '58be57a5-1330-4281-b1d2-cfda6321c327'
 
 interface OpenHumanAgentProps {
 	/** OpenHuman server base URL, e.g. 'http://localhost:8080'. */
@@ -27,6 +34,14 @@ interface OpenHumanAgentProps {
 	modelUrl?: string
 	/** Start with the panel open. Defaults to false. */
 	defaultOpen?: boolean
+	/**
+	 * WebSocket URL (or base) of the soldier MCP server's embedded hub. When
+	 * omitted, useSoldierSocket falls back to VITE_OPENHUMAN_SOLDIER_WS, then to
+	 * `ws://localhost:8765/ws/<soldierUserId>`.
+	 */
+	soldierWsUrl?: string
+	/** Connection id the soldier MCP server addresses animation commands to. */
+	soldierUserId?: string
 }
 
 const TRIGGER_STYLE: React.CSSProperties = {
@@ -52,8 +67,14 @@ export const OpenHumanAgent: React.FC<OpenHumanAgentProps> = ({
 	model,
 	modelUrl,
 	defaultOpen = false,
+	soldierWsUrl,
+	soldierUserId = DEFAULT_SOLDIER_USER_ID,
 }) => {
 	const [open, setOpen] = useState(defaultOpen)
+
+	// Connect directly to the soldier MCP server's WS hub so its play_animation
+	// tool drives the on-page avatar (window.playAnimation) with no backend hop.
+	useSoldierSocket({ url: soldierWsUrl, userId: soldierUserId })
 
 	return (
 		<>
