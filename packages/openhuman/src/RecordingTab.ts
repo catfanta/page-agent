@@ -19,6 +19,7 @@ const STRINGS = {
 	replay: '回放',
 	delete: '删除',
 	confirmDelete: '删除此录制？',
+	deleteFailed: '删除失败',
 	replayDone: '回放完成',
 	rename: '重命名',
 	renameSave: '保存',
@@ -194,7 +195,14 @@ export class RecordingTab {
 		this.historyEl.querySelectorAll<HTMLButtonElement>('.pa-rec-del').forEach((btn) => {
 			btn.addEventListener('click', async () => {
 				if (!confirm(STRINGS.confirmDelete)) return
-				await deleteRecording(btn.dataset.id!)
+				try {
+					await deleteRecording(btn.dataset.id!)
+				} catch (err) {
+					this.statusEl.textContent = `${STRINGS.deleteFailed}: ${
+						err instanceof Error ? err.message : String(err)
+					}`
+					return
+				}
 				await this.renderHistory()
 			})
 		})

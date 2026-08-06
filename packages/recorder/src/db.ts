@@ -74,9 +74,25 @@ export async function updateRecording(
 	return updated
 }
 
+/**
+ * Delete a recording by id.
+ *
+ * IndexedDB's `delete` resolves successfully even when the key does not exist,
+ * which hides "recording not found" behind a fake success. To keep failures
+ * visible and actionable, we check existence first and throw when the id is
+ * unknown. The delete and the existence check share a single readwrite
+ * transaction so the result cannot race with a concurrent write.
+ */
 export async function deleteRecording(id: string): Promise<void> {
 	const db = await getDB()
-	await db.delete('recordings', id)
+	const tx = db.transaction('recordings', 'readwrite')
+	const existing = await tx.store.get(id)
+	if (!existing) {
+		await tx.done
+		throw new Error(`Recording "${id}" not found`)
+	}
+	await tx.store.delete(id)
+	await tx.done
 }
 
 export async function clearRecordings(): Promise<void> {
