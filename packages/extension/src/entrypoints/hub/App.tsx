@@ -122,16 +122,16 @@ export default function App() {
 				}
 
 				case 'recordings_get': {
-					const id = payload.id as string | undefined
-					if (!id) throw new Error('id required')
+					const id = payload.recordingId as string | undefined
+					if (!id) throw new Error('recordingId required')
 					const recording = await getRecording(id)
 					if (!recording) throw new Error(`Recording "${id}" not found`)
 					return recording
 				}
 
 				case 'recordings_delete': {
-					const id = payload.id as string | undefined
-					if (!id) throw new Error('id required')
+					const id = payload.recordingId as string | undefined
+					if (!id) throw new Error('recordingId required')
 					await deleteRecording(id)
 					return { deleted: true, id }
 				}

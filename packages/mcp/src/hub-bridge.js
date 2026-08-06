@@ -8,6 +8,9 @@ const EXT_ID = 'akldabonmimlicnjlflnapfeklbfemhj'
 const STORE_URL = `https://chromewebstore.google.com/detail/page-agent-ext/${EXT_ID}`
 const LOOPBACK_HOST = 'localhost'
 
+/** How long to wait for a hub `response` before failing a command (ms). */
+const COMMAND_TIMEOUT_MS = 15000
+
 const launcherTemplate = readFileSync(
 	fileURLToPath(new URL('./launcher.html', import.meta.url)),
 	'utf-8'
@@ -109,8 +112,37 @@ export class HubBridge {
 	async sendCommand(type, payload = {}) {
 		if (!this.connected) throw new Error('Hub is not connected. Is the extension running?')
 		const id = crypto.randomUUID()
+		// `id` is the command-correlation UUID and is reserved by the envelope.
+		// Spreading payload AFTER it would let a payload field named `id` clobber
+		// the UUID, orphaning the response and hanging the caller until timeout.
+		// Guard against that class of bug rather than relying on every caller to
+		// avoid the reserved key.
+		if (Object.hasOwn(payload, 'id') || Object.hasOwn(payload, 'type')) {
+			throw new Error(
+				`Command payload must not contain reserved keys "id"/"type" (got ${Object.keys(payload).join(', ')})`
+			)
+		}
 		return new Promise((resolve, reject) => {
-			this.#pendingCommands.set(id, { resolve, reject })
+			// A pending command otherwise settles only on a matching `response` or on
+			// socket close. If the hub receives the command but never replies (e.g. an
+			// unhandled command type, or a client that speaks a different protocol on
+			// the same port), the promise would hang forever and the MCP tool call
+			// would appear frozen. A timeout turns that silent hang into a fast,
+			// actionable error.
+			const timer = setTimeout(() => {
+				this.#pendingCommands.delete(id)
+				reject(new Error(`Command "${type}" timed out after ${COMMAND_TIMEOUT_MS / 1000}s`))
+			}, COMMAND_TIMEOUT_MS)
+			this.#pendingCommands.set(id, {
+				resolve: (data) => {
+					clearTimeout(timer)
+					resolve(data)
+				},
+				reject: (err) => {
+					clearTimeout(timer)
+					reject(err)
+				},
+			})
 			this.#hub.send(JSON.stringify({ type, id, ...payload }))
 		})
 	}
@@ -134,11 +166,11 @@ export class HubBridge {
 	}
 	/** @param {string} id */
 	async recordingsGet(id) {
-		return this.sendCommand('recordings_get', { id })
+		return this.sendCommand('recordings_get', { recordingId: id })
 	}
 	/** @param {string} id */
 	async recordingsDelete(id) {
-		return this.sendCommand('recordings_delete', { id })
+		return this.sendCommand('recordings_delete', { recordingId: id })
 	}
 	/**
 	 * @param {string} name
