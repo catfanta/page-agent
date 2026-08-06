@@ -660,7 +660,7 @@ export const OpenHumanPanel: React.FC<OpenHumanPanelProps> = ({
 									: styles.completed,
 						].join(' ')}
 					/>
-					<div className={styles.statusText}>{isLoading ? '正在思考...' : 'OpenHuman Agent'}</div>
+					<div className={styles.statusText}>{isLoading ? '正在思考...' : '镜像人智能体'}</div>
 				</div>
 				<div className={styles.controls}>
 					{effectiveDeps && (
