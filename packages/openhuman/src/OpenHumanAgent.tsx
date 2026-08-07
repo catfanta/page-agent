@@ -37,7 +37,7 @@ interface OpenHumanAgentProps {
 	/**
 	 * WebSocket URL (or base) of the soldier MCP server's embedded hub. When
 	 * omitted, useSoldierSocket falls back to VITE_OPENHUMAN_SOLDIER_WS, then to
-	 * `ws://localhost:8765/ws/<soldierUserId>`.
+	 * `ws://localhost:38402/ws/<soldierUserId>`.
 	 */
 	soldierWsUrl?: string
 	/** Connection id the soldier MCP server addresses animation commands to. */

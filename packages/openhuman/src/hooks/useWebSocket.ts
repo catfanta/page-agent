@@ -17,6 +17,17 @@ import { useCallback, useEffect, useRef } from 'react'
 const RECONNECT_DELAY = 3000 // reconnect interval (ms)
 const MAX_RECONNECT_ATTEMPTS = 10
 
+/**
+ * Close codes the server sends deliberately; the client must NOT reconnect on
+ * these. 4002 = "replaced by a new connection": a newer socket has already taken
+ * over this userId, so the old one reconnecting just steals it back, and the two
+ * ping-pong every RECONNECT_DELAY. Each takeover also rejects any in-flight
+ * play_animation with "Replaced by a new avatar connection" — which is exactly
+ * the spurious error the animation call was hitting despite playing fine.
+ * 4001 = bad URL (missing userId): reconnecting can never fix a malformed URL.
+ */
+const NON_RETRYABLE_CLOSE_CODES = new Set([1000, 4001, 4002])
+
 /** Frame pushed by the MCP server's play_animation tool. */
 interface SoldierCommandFrame {
 	type: 'soldier_command'
@@ -26,8 +37,8 @@ interface SoldierCommandFrame {
 interface UseSoldierSocketOptions {
 	/**
 	 * Full WebSocket URL of the soldier MCP server's embedded hub, e.g.
-	 * `ws://localhost:8765/ws/<userId>`. When omitted, falls back to
-	 * VITE_OPENHUMAN_SOLDIER_WS, then to `ws://localhost:8765/ws/<userId>`.
+	 * `ws://localhost:38402/ws/<userId>`. When omitted, falls back to
+	 * VITE_OPENHUMAN_SOLDIER_WS, then to `ws://localhost:38402/ws/<userId>`.
 	 */
 	url?: string
 	/** Connection identifier the MCP server addresses commands to. */
@@ -45,7 +56,7 @@ function resolveSoldierWsUrl(url: string | undefined, userId: string | undefined
 		// Allow either a full URL or a base to which we append /ws/<userId>.
 		return base.includes('/ws/') ? base : `${base.replace(/\/$/, '')}/ws/${id}`
 	}
-	return `ws://localhost:8765/ws/${id}`
+	return `ws://localhost:38402/ws/${id}`
 }
 
 /**
@@ -79,8 +90,13 @@ export function useSoldierSocket({ url, userId, enabled = true }: UseSoldierSock
 				if (window.playAnimation) {
 					result = window.playAnimation(animation)
 				}
-				// Report execution result back so the tool call can resolve.
-				const ws = wsRef.current
+				// Reply on the SAME socket the command arrived on (event.currentTarget),
+				// never wsRef.current. After a reconnect/handoff, wsRef.current can point
+				// at a newer or already-closed socket, so the result frame would be sent
+				// on the wrong (or non-OPEN) socket and silently dropped — leaving the
+				// server's play_animation to hang until its 15s timeout even though the
+				// animation played fine.
+				const ws = event.currentTarget as WebSocket
 				if (ws && ws.readyState === WebSocket.OPEN) {
 					ws.send(JSON.stringify({ type: 'soldier_result', payload: { result } }))
 				}
@@ -110,8 +126,13 @@ export function useSoldierSocket({ url, userId, enabled = true }: UseSoldierSock
 		ws.onclose = (event) => {
 			console.log('[soldier-ws] closed:', event.code)
 			wsRef.current = null
-			// Reconnect on abnormal close, up to the attempt cap.
-			if (event.code !== 1000 && reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
+			// Reconnect only on abnormal close, and never on a code the server
+			// closed with deliberately (see NON_RETRYABLE_CLOSE_CODES) — retrying
+			// those causes a reconnect storm, not recovery.
+			if (
+				!NON_RETRYABLE_CLOSE_CODES.has(event.code) &&
+				reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS
+			) {
 				reconnectCountRef.current += 1
 				console.log(
 					`[soldier-ws] reconnecting in ${RECONNECT_DELAY / 1000}s (attempt ${reconnectCountRef.current})...`

@@ -11,6 +11,7 @@
         "packages/core",
         "packages/page-agent",
         "packages/mcp",
+        "packages/soldier-mcp",
         "packages/extension",
         "packages/website",
         "packages/openhuman"

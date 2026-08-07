@@ -1,0 +1,36 @@
+{
+    "name": "@page-agent/soldier-mcp",
+    "private": false,
+    "version": "1.8.0",
+    "type": "module",
+    "bin": {
+        "soldier-mcp": "src/index.js"
+    },
+    "files": [
+        "src/"
+    ],
+    "description": "MCP server that drives the OpenHuman on-page avatar (window.playAnimation) over a direct WebSocket, replacing the standalone Python soldier server",
+    "keywords": [
+        "page-agent",
+        "openhuman",
+        "mcp",
+        "avatar",
+        "animation"
+    ],
+    "author": "Simon<gaomeng1900>",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/alibaba/page-agent.git",
+        "directory": "packages/soldier-mcp"
+    },
+    "homepage": "https://alibaba.github.io/page-agent/",
+    "engines": {
+        "node": ">=20"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "ws": "^8.20.0",
+        "zod": "^4.3.6"
+    }
+}

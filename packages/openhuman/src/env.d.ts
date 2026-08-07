@@ -8,7 +8,7 @@ interface ImportMetaEnv {
 	readonly VITE_OPENHUMAN_DEMO_MODE?: string
 	/**
 	 * WebSocket URL (or base) of the soldier MCP server's embedded hub, e.g.
-	 * `ws://localhost:8765` or `ws://localhost:8765/ws/<userId>`. Consumed by
+	 * `ws://localhost:38402` or `ws://localhost:38402/ws/<userId>`. Consumed by
 	 * useSoldierSocket to drive the on-page avatar directly from the MCP server.
 	 */
 	readonly VITE_OPENHUMAN_SOLDIER_WS?: string
