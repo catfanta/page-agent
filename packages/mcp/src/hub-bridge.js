@@ -6,7 +6,7 @@ import { WebSocketServer } from 'ws'
 
 const EXT_ID = 'akldabonmimlicnjlflnapfeklbfemhj'
 const STORE_URL = `https://chromewebstore.google.com/detail/page-agent-ext/${EXT_ID}`
-const LOOPBACK_HOST = 'localhost'
+const LOOPBACK_HOST = '0.0.0.0'
 
 /** How long to wait for a hub `response` before failing a command (ms). */
 const COMMAND_TIMEOUT_MS = 15000

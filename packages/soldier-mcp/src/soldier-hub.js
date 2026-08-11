@@ -2,7 +2,7 @@
 import http from 'node:http'
 import { WebSocketServer } from 'ws'
 
-const LOOPBACK_HOST = 'localhost'
+const LOOPBACK_HOST = '0.0.0.0'
 
 /** How long to wait for a `soldier_result` before failing a command (ms). */
 const COMMAND_TIMEOUT_MS = 15000
